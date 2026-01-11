@@ -10,7 +10,6 @@ from reportlab.pdfgen import canvas
 from io import BytesIO
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from streamlit_gsheets import GSheetsConnection
 
 def fmt_date(d):
     return d.strftime("%d-%m-%Y")
@@ -77,38 +76,29 @@ def generate_pdf(book, start_date, end_date, df, money_in, money_out, net_bal, m
 
 
 def save_and_reset():
-    # 1. Access the global trans_df (make sure it's loaded at the top of your script)
-    global trans_df 
-
-    # 2. Access widget data
+    # 1. Access the data currently in the widgets
+    # We use .get() to avoid errors if the key is missing
     f = st.session_state.get("sb_f_acc")
     t = st.session_state.get("sb_t_acc")
     a = st.session_state.get("sb_amt", 0.0)
     n = st.session_state.get("sb_note", "")
     d = st.session_state.get("sb_date", datetime.now())
 
-    # 3. Create a new row (Pandas Style)
-    new_row = pd.DataFrame([{
-        "date": d.strftime("%Y-%m-%d"),
-        "from_acc": f,
-        "to_acc": t,
-        "amount": a,
-        "note": n
-    }])
+    # 2. Save to Database
+    run_action("INSERT INTO transactions (date, from_acc, to_acc, amount, note) VALUES (?,?,?,?,?)",
+               (d.strftime("%Y-%m-%d"), f, t, a, n))
 
-    # 4. Update the table and Save to Google Sheets
-    trans_df = pd.concat([trans_df, new_row], ignore_index=True)
-    save_data(trans_df, "Transactions") # Your new cloud helper
-
-    # 5. Reset Widgets
+# 3. FORCE INITIALIZATION (The Update)
+    # Instead of deleting, we set them back to their default values
     st.session_state["sb_f_acc"] = "-- Select Account --"
     st.session_state["sb_t_acc"] = "-- Select Account --"
     st.session_state["sb_amt"] = 0.0
     st.session_state["sb_note"] = ""
             
-    st.toast(f"✅ Saved ₹{a} to Cloud Ledger!")
-    # --- 1. SETTINGS & SECURITY ---
-    st.set_page_config(page_title="Ledger 2026", layout="wide", page_icon="📈")
+    st.toast(f"✅ Saved ₹{a} Successfully!")
+
+# --- 1. SETTINGS & SECURITY ---
+st.set_page_config(page_title="Ledger 2026", layout="wide", page_icon="📈")
 
 # Simple Password Protection
 def check_password():
@@ -127,28 +117,23 @@ def check_password():
         return False
     return True
 
-    from streamlit_gsheets import GSheetsConnection
+# --- 2. DATABASE HELPERS ---
+def run_query(query, params=()):
+    with sqlite3.connect('business_ledger.db') as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
-    # 1. Establish the Connection
-    conn = st.connection("gsheets", type=GSheetsConnection)
+def run_action(query, params=()):
+    with sqlite3.connect('business_ledger.db') as conn:
+        conn.execute(query, params)
+        conn.commit()
 
-    # 2. Updated Helper to Load Data (Replaces run_query)
-    def load_data(sheet_name):
-        # ttl=0 means it doesn't cache; it always pulls fresh data from Google
-        return conn.read(worksheet=sheet_name, ttl=0)
-
-    # 3. Updated Helper to Save Data (Replaces run_action)
-    def save_data(df, sheet_name):
-        conn.update(worksheet=sheet_name, data=df)
-        st.cache_data.clear() # Refreshes the app memory
-        
-    # --- 3. MAIN APP ---
-    if check_password():
-        st.title("📊 Ledger 2026 Dashboard")
-        
-    # load data from Google Sheets
-    acc_df = load_data("Accounts")
-    trans_df = load_data("Transactions")
+# --- 3. MAIN APP ---
+if check_password():
+    st.title("📊 Ledger 2026 Dashboard")
+    
+    # CALCULATE TOTALS
+    acc_df = run_query("SELECT * FROM accounts")
+    trans_df = run_query("SELECT * FROM transactions")
     
     # Business Metrics (Top Row)
     c1, c2, c3, c4, c5 = st.columns(5) # Added 5th column
@@ -289,32 +274,15 @@ def check_password():
             use_container_width=True,
             key="save_btn"
         )
-        
         st.divider()
         st.header("👥 Add New Party")
         new_p = st.text_input("Party Name")
-
         if st.button("Add Party", use_container_width=True):
-            # Check if party already exists in our acc_df
-            if new_p in acc_df['name'].values:
-                st.error("❌ This party already exists!")
-            elif new_p == "":
-                st.warning("⚠️ Please enter a name.")
-            else:
-                # Create new account row
-                # (Assuming your Google Sheet columns are: name, type, balance)
-                new_acc = pd.DataFrame([{
-                    "name": new_p,
-                    "type": "Party",
-                    "balance": 0.0
-                }])
-                
-                # Update global acc_df and save to Cloud
-                acc_df = pd.concat([acc_df, new_acc], ignore_index=True)
-                save_data(acc_df, "Accounts") # Your new cloud helper
-                
-                st.success(f"✅ Added {new_p} to Cloud Database")
+            try:
+                run_action("INSERT INTO accounts (name, opening_bal) VALUES (?, 0)", (new_p,))
+                st.success(f"Added {new_p}")
                 st.rerun()
+            except: st.error("Already exists!")
     
     if 'show_party_report' not in st.session_state:
         st.session_state['show_party_report'] = False
@@ -340,32 +308,6 @@ def check_password():
             use_container_width=True,
             height=400 # Adds a scrollbar after this height
         )
-        
-        # --- DELETE TRANSACTION FEATURE ---
-        st.subheader("🗑️ Edit / Delete Transactions")
-
-        # 1. Let the user select a transaction to delete
-        # We create a list of strings to show in a selectbox
-        delete_options = filtered_df.index.tolist()
-        if not filtered_df.empty:
-            selected_index = st.selectbox(
-                "Select Transaction ID to Delete", 
-                options=delete_options,
-                format_func=lambda x: f"ID: {x} | {filtered_df.loc[x, 'date']} | {filtered_df.loc[x, 'from_acc']} -> {filtered_df.loc[x, 'to_acc']} | ₹{filtered_df.loc[x, 'amount']}"
-            )
-
-            if st.button("❌ Delete Selected Transaction", use_container_width=True):
-                # 2. Remove the row from the global trans_df
-                # Using the actual index from the main dataframe
-                trans_df = trans_df.drop(selected_index).reset_index(drop=True)
-                
-                # 3. Save the updated table to Google Sheets
-                save_data(trans_df, "Transactions")
-                
-                st.toast("🗑️ Transaction Deleted Successfully!")
-                st.rerun()
-        else:
-            st.info("No transactions available to delete.")
         
         st.caption("💡 Red rows indicate Personal Expenses")
 
