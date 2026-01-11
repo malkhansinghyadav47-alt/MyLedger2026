@@ -1,6 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+from fpdf import FPDF
 import plotly.express as px
 from datetime import datetime
 import plotly.graph_objects as go
@@ -546,3 +547,4 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
