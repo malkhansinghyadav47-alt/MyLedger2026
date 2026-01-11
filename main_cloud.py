@@ -369,7 +369,7 @@ if check_password():
                     f"---------------------------\n"
                     f"✅ {msg_hindi}\n"
                     f"---------------------------\n"
-                    f"Generated via MyLedger 2026."
+                    f"Generated via JGMPS Ledger 2026."
                 )
                 encoded_msg = urllib.parse.quote(wa_message)
                 whatsapp_url = f"https://wa.me/?text={encoded_msg}"
@@ -436,7 +436,7 @@ if check_password():
 
                         st.markdown(f"""
                         <div style="margin-top: 20px; font-size: 12px; color: gray; text-align: center;">
-                            <p>This is a computer-generated statement from MyLedger 2026.</p>
+                            <p>This is a computer-generated statement from JGMPS Ledger 2026.</p>
                             <p>Status: {msg_hindi}</p>
                         </div>
                         """, unsafe_allow_html=True)
@@ -548,6 +548,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
