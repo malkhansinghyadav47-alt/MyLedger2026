@@ -223,7 +223,7 @@ if check_password():
     # --- 2. THE SIDEBAR UI ---
     with st.sidebar:
         # GUIDELINE BOX FOR USER
-        st.info("""**📖📘📒 JGMPS**
+        st.info("""**📖 JGMPS**
         - **Quick Guide:**
         - **Sales:** Paid By: `Sales Income` → Received By: `Cash/Bank`
         - **Expense:** Paid By: `Cash/Bank` → Received By: `Personal Expense`
@@ -548,6 +548,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
