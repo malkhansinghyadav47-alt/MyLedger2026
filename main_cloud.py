@@ -130,7 +130,7 @@ def run_action(query, params=()):
 
 # --- 3. MAIN APP ---
 if check_password():
-    st.title("📊 Ledger 2026 Dashboard")
+    st.title("📊 Jan Gan Man Public School Ledger 2026 Dashboard")
     
     # CALCULATE TOTALS
     acc_df = run_query("SELECT * FROM accounts")
@@ -311,6 +311,7 @@ if check_password():
         )
         
         st.caption("💡 Red rows indicate Personal Expenses")
+        st.caption("💡 Courtasy Jan Gan Man Public School Muradnagar")
 
     with tab2:
             st.subheader("📖 Account Statements (Books)")
@@ -547,4 +548,5 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
