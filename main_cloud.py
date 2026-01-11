@@ -20,7 +20,6 @@ pdfmetrics.registerFont(
     TTFont("Noto", "fonts/NotoSans-Regular.ttf")
 )
 
-
 def generate_pdf(book, start_date, end_date, df, money_in, money_out, net_bal, msg_hindi):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -224,7 +223,8 @@ if check_password():
     # --- 2. THE SIDEBAR UI ---
     with st.sidebar:
         # GUIDELINE BOX FOR USER
-        st.info("""**Quick Guide:**
+        st.info("""**JGMPS**
+        - **Quick Guide:**
         - **Sales:** Paid By: `Sales Income` → Received By: `Cash/Bank`
         - **Expense:** Paid By: `Cash/Bank` → Received By: `Personal Expense`
         - **Deposit:** Paid By: `Cash` → Received By: `Bank`""")
@@ -548,5 +548,6 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
