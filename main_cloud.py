@@ -15,7 +15,6 @@ from reportlab.pdfbase.ttfonts import TTFont
 def fmt_date(d):
     return d.strftime("%d-%m-%Y")
 
-
 pdfmetrics.registerFont(
     TTFont("Noto", "fonts/NotoSans-Regular.ttf")
 )
@@ -106,6 +105,7 @@ def check_password():
         st.session_state["authenticated"] = False
     
     if not st.session_state["authenticated"]:
+        st.title("JGMPS Ledger")
         st.title("🔐 Secure Login")
         pwd = st.text_input("Enter Business Key", type="password")
         if st.button("Unlock Ledger"):
@@ -548,6 +548,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
