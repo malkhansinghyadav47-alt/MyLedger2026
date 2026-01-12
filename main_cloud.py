@@ -311,7 +311,7 @@ if check_password():
         )
         
         st.caption("💡 Red rows indicate Personal Expenses")
-        st.caption("💡 Courtesy Jan Gan Man Public School Muradnagar")
+        st.caption("Courtesy of Jan Gan Man Public School Muradnagar")
 
     with tab2:
             st.subheader("📖 Account Statements (Books)")
@@ -548,6 +548,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
