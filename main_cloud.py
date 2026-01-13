@@ -338,24 +338,56 @@ if check_password():
                 st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
                 st.dataframe(filtered_df, use_container_width=True)
 
-                # DELETE LOGIC WITH CONFIRMATION
-                if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del"):
-                    st.session_state['confirm_delete'] = True
+                # Action UI
+                st.markdown("### 🛠️ Record Actions")
+                action_col1, action_col2 = st.columns(2)
+                
+                with action_col1:
+                    edit_id = st.number_input("Enter ID to Edit/Delete", min_value=0, step=1, key="action_id")
+                
+                # Fetch the specific record if user wants to edit
+                target_row = filtered_df[filtered_df['id'] == edit_id]
 
-                if st.session_state.get('confirm_delete', False):
-                    with st.status("⚠️ Confirm Deletion", expanded=True):
-                        st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
-                        
-                        c1, c2 = st.columns(2)
-                        if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
-                            run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
-                            st.session_state['confirm_delete'] = False # Reset state
-                            st.success(f"Record {edit_id} deleted successfully.")
-                            st.rerun()
+                if not target_row.empty:
+                    col_btn1, col_btn2 = st.columns(2)
+                                        
+                    # DELETE LOGIC WITH CONFIRMATION
+                    if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del"):
+                        st.session_state['confirm_delete'] = True
+
+                    if st.session_state.get('confirm_delete', False):
+                        with st.status("⚠️ Confirm Deletion", expanded=True):
+                            st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
                             
-                        if c2.button("❌ Cancel", use_container_width=True):
-                            st.session_state['confirm_delete'] = False # Reset state
+                            c1, c2 = st.columns(2)
+                            if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
+                                run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
+                                st.session_state['confirm_delete'] = False # Reset state
+                                st.success(f"Record {edit_id} deleted successfully.")
+                                st.rerun()
+                                
+                            if c2.button("❌ Cancel", use_container_width=True):
+                                st.session_state['confirm_delete'] = False # Reset state
+                                st.rerun()
+                                
+                    # EDIT LOGIC (Expandable Form)
+                    with st.expander("📝 Edit Details"):
+                        new_date = st.date_input("New Date", value=pd.to_datetime(target_row['date'].values[0]))
+                        new_from = st.selectbox("New Paid By", all_accs, index=all_accs.index(target_row['from_acc'].values[0]))
+                        new_to = st.selectbox("New Received By", all_accs, index=all_accs.index(target_row['to_acc'].values[0]))
+                        new_amt = st.number_input("New Amount", value=float(target_row['amount'].values[0]))
+                        new_note = st.text_input("New Remark", value=target_row['note'].values[0])
+                        
+                        if st.button("💾 Save Changes", type="primary"):
+                            run_action("""UPDATE transactions 
+                                    SET date=?, from_acc=?, to_acc=?, amount=?, note=? 
+                                    WHERE id=?""", 
+                                    (new_date.strftime("%Y-%m-%d"), new_from, new_to, new_amt, new_note, int(edit_id)))
+                            st.success("Record Updated!")
                             st.rerun()
+                else:
+                    st.caption("Enter a valid ID from the table above to perform actions.")
+                
                     
                 # 3. CALCULATE TOTALS FOR SELECTED PERIOD
                 money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
@@ -567,6 +599,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
