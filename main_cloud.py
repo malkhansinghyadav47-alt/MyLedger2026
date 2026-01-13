@@ -372,19 +372,48 @@ if check_password():
                                 
                     # EDIT LOGIC (Expandable Form)
                     with st.expander("📝 Edit Details"):
-                        new_date = st.date_input("New Date", value=pd.to_datetime(target_row['date'].values[0]))
-                        new_from = st.selectbox("New Paid By", all_accs, index=all_accs.index(target_row['from_acc'].values[0]))
-                        new_to = st.selectbox("New Received By", all_accs, index=all_accs.index(target_row['to_acc'].values[0]))
-                        new_amt = st.number_input("New Amount", value=float(target_row['amount'].values[0]))
-                        new_note = st.text_input("New Remark", value=target_row['note'].values[0])
+                        # 1. Capture original values for comparison
+                        orig_date = pd.to_datetime(target_row['date'].values[0]).date()
+                        orig_from = target_row['from_acc'].values[0]
+                        orig_to = target_row['to_acc'].values[0]
+                        orig_amt = float(target_row['amount'].values[0])
+                        orig_note = target_row['note'].values[0]
+                    
+                        # 2. Input widgets
+                        new_date = st.date_input("New Date", value=orig_date, key=f"edit_date_{edit_id}")
+                        new_from = st.selectbox("New Paid By", all_accs, index=all_accs.index(orig_from), key=f"edit_f_{edit_id}")
+                        new_to = st.selectbox("New Received By", all_accs, index=all_accs.index(orig_to), key=f"edit_t_{edit_id}")
+                        new_amt = st.number_input("New Amount", value=orig_amt, key=f"edit_amt_{edit_id}")
+                        new_note = st.text_input("New Remark", value=orig_note, key=f"edit_note_{edit_id}")
+                    
+                        # 3. Change Detection Logic
+                        has_changed = (
+                            new_date != orig_date or
+                            new_from != orig_from or
+                            new_to != orig_to or
+                            new_amt != orig_amt or
+                            new_note != orig_note
+                        )
+                    
+                        # 4. Action Buttons (Save and Cancel)
+                        btn_col1, btn_col2 = st.columns(2)
                         
-                        if st.button("💾 Save Changes", type="primary"):
-                            run_action("""UPDATE transactions 
-                                    SET date=?, from_acc=?, to_acc=?, amount=?, note=? 
-                                    WHERE id=?""", 
-                                    (new_date.strftime("%Y-%m-%d"), new_from, new_to, new_amt, new_note, int(edit_id)))
-                            st.success("Record Updated!")
-                            st.rerun()
+                        with btn_col1:
+                            if st.button("💾 Save Changes", type="primary", disabled=not has_changed, use_container_width=True):
+                                run_action("""UPDATE transactions 
+                                           SET date=?, from_acc=?, to_acc=?, amount=?, note=? 
+                                           WHERE id=?""", 
+                                           (new_date.strftime("%Y-%m-%d"), new_from, new_to, new_amt, new_note, int(edit_id)))
+                                st.success("✅ Record Updated!")
+                                st.rerun()
+                    
+                        with btn_col2:
+                            if st.button("❌ Cancel Edit", use_container_width=True):
+                                # Simply re-running the app clears the unsaved widget inputs
+                                st.rerun()
+                        
+                        if not has_changed:
+                            st.caption("ℹ️ Changes must be made to enable saving.")
                 else:
                     st.caption("Enter a valid ID from the table above to perform actions.")
                 
@@ -599,6 +628,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
