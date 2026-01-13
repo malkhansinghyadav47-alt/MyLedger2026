@@ -313,49 +313,49 @@ if check_password():
         st.caption("💡 Red rows indicate Personal Expenses")
         st.caption("Courtesy of Jan Gan Man Public School Muradnagar")
 
-        with tab2:
-                st.subheader("📖 Account Statements (Books)")
-                all_accs = acc_df['name'].tolist()
-                
-                # 1. SELECT PARTY AND DATES
-                col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
-                with col_s1:
-                    selected_book = st.selectbox("Select Book to View", all_accs, key="book_selector")
-                with col_s2:
-                    start_date = st.date_input("From", datetime(2026, 1, 1), key="book_start")
-                with col_s3:
-                    end_date = st.date_input("To", datetime.now(), key="book_end")
-                
-                # 2. FILTER DATA BY PARTY AND DATE RANGE
-                book_df = trans_df[(trans_df['from_acc'] == selected_book) | (trans_df['to_acc'] == selected_book)].copy()
-                book_df['date'] = pd.to_datetime(book_df['date']).dt.date
-                
-                # Apply the date filter
-                mask = (book_df['date'] >= start_date) & (book_df['date'] <= end_date)
-                filtered_df = book_df.loc[mask]
-                
-                if not filtered_df.empty:
-                    st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
-                    st.dataframe(filtered_df, use_container_width=True)
-    
-                        # DELETE LOGIC WITH CONFIRMATION
-                        if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del"):
-                            st.session_state['confirm_delete'] = True
-    
-                        if st.session_state.get('confirm_delete', False):
-                            with st.status("⚠️ Confirm Deletion", expanded=True):
-                                st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
-                                
-                                c1, c2 = st.columns(2)
-                                if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
-                                    run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
-                                    st.session_state['confirm_delete'] = False # Reset state
-                                    st.success(f"Record {edit_id} deleted successfully.")
-                                    st.rerun()
-                                    
-                                if c2.button("❌ Cancel", use_container_width=True):
-                                    st.session_state['confirm_delete'] = False # Reset state
-                                    st.rerun()
+    with tab2:
+            st.subheader("📖 Account Statements (Books)")
+            all_accs = acc_df['name'].tolist()
+            
+            # 1. SELECT PARTY AND DATES
+            col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
+            with col_s1:
+                selected_book = st.selectbox("Select Book to View", all_accs, key="book_selector")
+            with col_s2:
+                start_date = st.date_input("From", datetime(2026, 1, 1), key="book_start")
+            with col_s3:
+                end_date = st.date_input("To", datetime.now(), key="book_end")
+            
+            # 2. FILTER DATA BY PARTY AND DATE RANGE
+            book_df = trans_df[(trans_df['from_acc'] == selected_book) | (trans_df['to_acc'] == selected_book)].copy()
+            book_df['date'] = pd.to_datetime(book_df['date']).dt.date
+            
+            # Apply the date filter
+            mask = (book_df['date'] >= start_date) & (book_df['date'] <= end_date)
+            filtered_df = book_df.loc[mask]
+            
+            if not filtered_df.empty:
+                st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
+                st.dataframe(filtered_df, use_container_width=True)
+
+                # DELETE LOGIC WITH CONFIRMATION
+                if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del"):
+                    st.session_state['confirm_delete'] = True
+
+                if st.session_state.get('confirm_delete', False):
+                    with st.status("⚠️ Confirm Deletion", expanded=True):
+                        st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
+                        
+                        c1, c2 = st.columns(2)
+                        if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
+                            run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
+                            st.session_state['confirm_delete'] = False # Reset state
+                            st.success(f"Record {edit_id} deleted successfully.")
+                            st.rerun()
+                            
+                        if c2.button("❌ Cancel", use_container_width=True):
+                            st.session_state['confirm_delete'] = False # Reset state
+                            st.rerun()
                     
                 # 3. CALCULATE TOTALS FOR SELECTED PERIOD
                 money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
@@ -567,6 +567,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
