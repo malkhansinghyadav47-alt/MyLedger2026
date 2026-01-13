@@ -337,6 +337,25 @@ if check_password():
             if not filtered_df.empty:
                 st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
                 st.dataframe(filtered_df, use_container_width=True)
+
+                    # DELETE LOGIC WITH CONFIRMATION
+                    if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del"):
+                        st.session_state['confirm_delete'] = True
+
+                    if st.session_state.get('confirm_delete', False):
+                        with st.status("⚠️ Confirm Deletion", expanded=True):
+                            st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
+                            
+                            c1, c2 = st.columns(2)
+                            if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
+                                run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
+                                st.session_state['confirm_delete'] = False # Reset state
+                                st.success(f"Record {edit_id} deleted successfully.")
+                                st.rerun()
+                                
+                            if c2.button("❌ Cancel", use_container_width=True):
+                                st.session_state['confirm_delete'] = False # Reset state
+                                st.rerun()
                 
                 # 3. CALCULATE TOTALS FOR SELECTED PERIOD
                 money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
@@ -548,6 +567,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
