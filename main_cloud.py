@@ -12,9 +12,17 @@ from io import BytesIO
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-if 'active_id' not in st.session_state:
-    st.session_state['active_id'] = 0
+# --- INITIALIZATION (Ensure these are at the top of your script) ---
+if 'should_reset' not in st.session_state:
+    st.session_state['should_reset'] = False
+if 'confirm_delete' not in st.session_state:
+    st.session_state['confirm_delete'] = False
 
+def trigger_reset():
+    """Callback to signal a reset in the next run"""
+    st.session_state['should_reset'] = True
+    st.session_state['confirm_delete'] = False
+        
 def fmt_date(d):
     return d.strftime("%d-%m-%Y")
 
@@ -340,95 +348,93 @@ if check_password():
             if not filtered_df.empty:
                 st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
                 st.dataframe(filtered_df, use_container_width=True)
-                              
-                # --- ACTION UI ---
+                                
+                # --- TAB 2: ACTION UI ---
                 st.markdown("### 🛠️ Record Actions")
+
+                # --- THE RESET GUARD ---
+                # This runs BEFORE the widget is created, making it safe to modify the state
+                if st.session_state.get('should_reset', False):
+                    st.session_state['action_id_input'] = 0
+                    st.session_state['should_reset'] = False 
+
                 action_col1, action_col2 = st.columns(2)
 
                 with action_col1:
-                    # Use session_state to allow resetting the value to 0
                     edit_id = st.number_input(
                         "Enter ID to Edit/Delete", 
                         min_value=0, 
                         step=1, 
-                        value=st.session_state['active_id'],
                         key="action_id_input"
                     )
-                    # Sync the local variable with session state
-                    st.session_state['active_id'] = edit_id
 
-                # Fetch the specific record
-                target_row = filtered_df[filtered_df['id'] == edit_id] if edit_id > 0 else pd.DataFrame()
+                if edit_id > 0:
+                    # Fetch the specific record
+                    target_row = filtered_df[filtered_df['id'] == edit_id] if not filtered_df.empty else pd.DataFrame()
 
-                if not target_row.empty:
-                    col_btn1, col_btn2 = st.columns(2)
-                    
-                    # 1. DELETE LOGIC WITH CONFIRMATION
-                    if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del"):
-                        st.session_state['confirm_delete'] = True
-
-                    if st.session_state.get('confirm_delete', False):
-                        with st.status("⚠️ Confirm Deletion", expanded=True):
-                            st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
-                            c1, c2 = st.columns(2)
-                            if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
-                                run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
-                                st.session_state['confirm_delete'] = False
-                                st.session_state['active_id'] = 0  # Reset ID selector
-                                st.success(f"Record {edit_id} deleted.")
-                                st.rerun()
-                            if c2.button("❌ No, Keep it", use_container_width=True):
-                                st.session_state['confirm_delete'] = False
-                                st.rerun()
-
-                    # 2. EDIT LOGIC (Expandable Form)
-                    with st.expander("📝 Edit Details", expanded=True):
-                        # Store original values for comparison
-                        orig_date = pd.to_datetime(target_row['date'].values[0]).date()
-                        orig_from = target_row['from_acc'].values[0]
-                        orig_to = target_row['to_acc'].values[0]
-                        orig_amt = float(target_row['amount'].values[0])
-                        orig_note = target_row['note'].values[0]
-
-                        # Widgets
-                        new_date = st.date_input("New Date", value=orig_date)
-                        new_from = st.selectbox("New Paid By", all_accs, index=all_accs.index(orig_from))
-                        new_to = st.selectbox("New Received By", all_accs, index=all_accs.index(orig_to))
-                        new_amt = st.number_input("New Amount", value=orig_amt)
-                        new_note = st.text_input("New Remark", value=orig_note)
-
-                        # CHANGE DETECTION
-                        has_changed = (
-                            new_date != orig_date or new_from != orig_from or 
-                            new_to != orig_to or new_amt != orig_amt or new_note != orig_note
-                        )
-
-                        eb1, eb2 = st.columns(2)
-                        with eb1:
-                            # SAVE BUTTON: Only enabled if changes exist
-                            if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not has_changed):
-                                run_action("""UPDATE transactions 
-                                            SET date=?, from_acc=?, to_acc=?, amount=?, note=? 
-                                            WHERE id=?""", 
-                                            (new_date.strftime("%Y-%m-%d"), new_from, new_to, new_amt, new_note, int(edit_id)))
-                                st.session_state['active_id'] = 0 # Close the editor
-                                st.success("Record Updated!")
-                                st.rerun()
+                    if not target_row.empty:
+                        col_btn1, col_btn2 = st.columns(2)
                         
-                        with eb2:
-                            # CANCEL BUTTON: Resets everything
-                            if st.button("❌ Cancel Edit", use_container_width=True):
-                                st.session_state['active_id'] = 0 # This clears the ID input
-                                st.rerun()
-                                
-                        if not has_changed:
-                            st.caption("ℹ️ Modify a field to enable the Save button.")
+                        # 1. DELETE LOGIC WITH CONFIRMATION
+                        if col_btn1.button("🗑️ Request Delete", use_container_width=True, key="req_del_btn"):
+                            st.session_state['confirm_delete'] = True
 
-                elif edit_id > 0:
-                    st.error(f"ID {edit_id} not found in this book.")
+                        if st.session_state.get('confirm_delete', False):
+                            with st.status("⚠️ Confirm Deletion", expanded=True):
+                                st.write(f"Are you sure you want to permanently delete Record ID: {edit_id}?")
+                                c1, c2 = st.columns(2)
+                                if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
+                                    run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
+                                    st.session_state['should_reset'] = True  # Signal reset
+                                    st.success(f"Record {edit_id} deleted.")
+                                    st.rerun()
+                                
+                                # Use the callback for the 'No' button
+                                c2.button("❌ No, Keep it", use_container_width=True, on_click=trigger_reset)
+
+                        # 2. EDIT LOGIC (Expandable Form)
+                        with st.expander("📝 Edit Details", expanded=True):
+                            # Store original values for comparison
+                            orig_date = pd.to_datetime(target_row['date'].values[0]).date()
+                            orig_from = target_row['from_acc'].values[0]
+                            orig_to = target_row['to_acc'].values[0]
+                            orig_amt = float(target_row['amount'].values[0])
+                            orig_note = target_row['note'].values[0]
+
+                            # Widgets
+                            new_date = st.date_input("New Date", value=orig_date)
+                            new_from = st.selectbox("New Paid By", all_accs, index=all_accs.index(orig_from))
+                            new_to = st.selectbox("New Received By", all_accs, index=all_accs.index(orig_to))
+                            new_amt = st.number_input("New Amount", value=orig_amt)
+                            new_note = st.text_input("New Remark", value=orig_note)
+
+                            # Change Detection
+                            has_changed = (
+                                new_date != orig_date or new_from != orig_from or 
+                                new_to != orig_to or new_amt != orig_amt or new_note != orig_note
+                            )
+
+                            eb1, eb2 = st.columns(2)
+                            with eb1:
+                                if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not has_changed):
+                                    run_action("""UPDATE transactions SET date=?, from_acc=?, to_acc=?, amount=?, note=? WHERE id=?""", 
+                                            (new_date.strftime("%Y-%m-%d"), new_from, new_to, new_amt, new_note, int(edit_id)))
+                                    st.session_state['should_reset'] = True  # Signal reset
+                                    st.success("Record Updated!")
+                                    st.rerun()
+                            
+                            with eb2:
+                                # Use the callback to avoid "instantiated" error
+                                st.button("❌ Cancel Edit", use_container_width=True, on_click=trigger_reset)
+                            
+                            if not has_changed:
+                                st.caption("ℹ️ Modify a field to enable the Save button.")
+
+                    else:
+                        st.error(f"ID {edit_id} not found in this book.")
                 else:
                     st.caption("Select a record ID from the table above to Edit or Delete.")
-                   
+                                                
                 # 3. CALCULATE TOTALS FOR SELECTED PERIOD
                 money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
                 money_out = filtered_df[filtered_df['from_acc'] == selected_book]['amount'].sum()
@@ -639,20 +645,3 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
