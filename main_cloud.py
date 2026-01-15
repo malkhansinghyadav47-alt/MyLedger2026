@@ -11,6 +11,32 @@ from reportlab.pdfgen import canvas
 from io import BytesIO
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import difflib # Ensure this is at the top of your file
+from difflib import SequenceMatcher
+from setup_db import init_db, reset_database
+
+# Initialize the database by running the setup script from setup_db.py
+init_db()
+# reset_database()
+
+# --- CLEAN DATABASE HELPERS ---
+DB_FILE = 'business_ledger.db'
+
+def get_query(query, params=()):
+    """Use this for all SELECT statements"""
+    with sqlite3.connect(DB_FILE) as conn:
+        return pd.read_sql_query(query, conn, params=params)
+
+def run_action(query, params=()):
+    """Use this for all INSERT, UPDATE, DELETE statements"""
+    with sqlite3.connect(DB_FILE) as conn:
+        curr = conn.cursor()
+        curr.execute(query, params)
+        conn.commit()
+
+# Alias for compatibility if your dashboard uses 'run_query'
+def run_query(query, params=()):
+    return get_query(query, params)
 
 # --- INITIALIZATION (Ensure these are at the top of your script) ---
 if 'should_reset' not in st.session_state:
@@ -127,16 +153,6 @@ def check_password():
                 st.error("Wrong Key!")
         return False
     return True
-
-# --- 2. DATABASE HELPERS ---
-def run_query(query, params=()):
-    with sqlite3.connect('business_ledger.db') as conn:
-        return pd.read_sql_query(query, conn, params=params)
-
-def run_action(query, params=()):
-    with sqlite3.connect('business_ledger.db') as conn:
-        conn.execute(query, params)
-        conn.commit()
 
 # --- 3. MAIN APP ---
 if check_password():
@@ -287,18 +303,61 @@ if check_password():
             key="save_btn"
         )
         st.divider()
+
+        # --- ADD NEW PARTY SECTION ---
         st.header("👥 Add New Party")
-        new_p = st.text_input("Party Name")
-        if st.button("Add Party", use_container_width=True):
+
+        # 1. Fetch existing data for warning purposes
+        try:
+            existing_df = get_query("SELECT name, phone FROM accounts")
+            existing_names = existing_df['name'].tolist() if not existing_df.empty else []
+        except Exception as e:
+            st.error(f"Error fetching data: {e}")
+            existing_names = []
+
+        # 2. SEPARATE INPUT ROWS
+        new_p_raw = st.text_input("1️⃣ Party Name", placeholder="e.g., Rahul Kumar", key="p_name")
+        new_phone = st.text_input("2️⃣ Phone Number", placeholder="e.g., 9876543210", key="p_phone")
+        new_address = st.text_area("3️⃣ Full Address", placeholder="Location details...", key="p_addr", height=100)
+
+        # --- WARNING LOGIC (Not Prevention) ---
+        new_p_clean = new_p_raw.strip()
+        is_duplicate = False
+
+        if new_p_clean:
+            # Check for exact matches
+            exact_matches = [n for n in existing_names if n.lower() == new_p_clean.lower()]
+            
+            if exact_matches:
+                is_duplicate = True
+                st.warning(f"⚠️ **Note:** There is already a person named **'{new_p_clean}'** in your list.")
+                st.info("If this is a different person with the same name, you can still proceed by checking the box below.")
+            else:
+                # Check for fuzzy/similar matches
+                close_matches = difflib.get_close_matches(new_p_clean.lower(), [n.lower() for n in existing_names], n=2, cutoff=0.7)
+                if close_matches:
+                    is_duplicate = True
+                    st.info(f"💡 Similar names found: {', '.join(close_matches)}. Ensure this isn't a typo.")
+
+        # 3. THE "PROCEED ANYWAY" CHECKBOX
+        # This appears only if a duplicate/similar name is found
+        confirm_add = True
+        if is_duplicate:
+            confirm_add = st.checkbox("Yes, this is a different person. Add them anyway.", key="force_add")
+
+        # 4. ACTION BUTTON
+        # Enabled if name is typed AND (it's not a duplicate OR user checked the box)
+        if st.button("➕ Register New Party", use_container_width=True, disabled=not (new_p_clean and confirm_add)):
             try:
-                run_action("INSERT INTO accounts (name, opening_bal) VALUES (?, 0)", (new_p,))
-                st.success(f"Added {new_p}")
+                run_action(
+                    "INSERT INTO accounts (name, opening_bal, phone, address) VALUES (?, 0, ?, ?)",
+                    (new_p_clean, new_phone.strip(), new_address.strip())
+                )
+                st.success(f"✅ Registered '{new_p_clean}' successfully!")
                 st.rerun()
-            except: st.error("Already exists!")
-    
-    if 'show_party_report' not in st.session_state:
-        st.session_state['show_party_report'] = False
-        
+            except Exception as e:
+                st.error(f"🚫 Database error: {e}")
+                           
     # --- MAIN AREA: TABS (Updated with Books) ---
     tab1, tab2, tab3, tab4 = st.tabs(["📜 Recent History", "📖 Books", "🔍 Advanced Search", "📂 Export & Tools"])
     with tab1:
