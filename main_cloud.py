@@ -1,4 +1,6 @@
 import streamlit as st
+import io
+import urllib.parse
 import sqlite3
 import pandas as pd
 from fpdf import FPDF
@@ -34,6 +36,12 @@ def run_action(query, params=()):
         curr.execute(query, params)
         conn.commit()
 
+try:
+    # This adds the column if it doesn't exist. DEFAULT 1 keeps everyone active.
+    run_action("ALTER TABLE accounts ADD COLUMN is_active INTEGER DEFAULT 1")
+except Exception:
+    pass # Column already exists
+
 # Alias for compatibility if your dashboard uses 'run_query'
 def run_query(query, params=()):
     return get_query(query, params)
@@ -55,6 +63,69 @@ def fmt_date(d):
 pdfmetrics.registerFont(
     TTFont("Noto", "fonts/NotoSans-Regular.ttf")
 )
+
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from io import BytesIO
+
+def generate_directory_pdf(df):
+    buffer = BytesIO()
+    # Create the canvas
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    # --- Header ---
+    y = height - 50
+    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(width/2, y, "PARTY DIRECTORY REPORT")
+    
+    y -= 30
+    c.setFont("Noto", 10) # Using Noto as your other working code does
+    c.drawCentredString(width/2, y, f"Total Records: {len(df)}")
+    c.line(40, y-10, width-40, y-10)
+
+    # --- Table Headers ---
+    y -= 40
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(50, y, "ID")
+    c.drawString(80, y, "Name")
+    c.drawString(240, y, "Phone")
+    c.drawString(360, y, "Address")
+    
+    # --- Data Rows ---
+    y -= 20
+    c.setFont("Noto", 9)
+    
+    for _, row in df.iterrows():
+        if y < 50: # Check for new page
+            c.showPage()
+            y = height - 50
+            c.setFont("Noto", 9)
+
+        # CLEAN THE TEXT: Convert to string and handle None/Null values
+        # This prevents the "NoneType" error you saw earlier
+        p_id = str(row['id'])
+        p_name = str(row['name'] if row['name'] else "")
+        p_phone = str(row['phone'] if row['phone'] else "")
+        p_addr = str(row['address'] if row['address'] else "")
+
+        try:
+            c.drawString(50, y, p_id)
+            c.drawString(80, y, p_name[:40]) # Truncate if too long
+            c.drawString(240, y, p_phone)
+            c.drawString(360, y, p_addr[:45])
+        except:
+            # If Noto fails on a specific character, fallback to Helvetica
+            c.setFont("Helvetica", 9)
+            c.drawString(80, y, "Text encoding error in this row")
+            c.setFont("Noto", 9)
+            
+        y -= 20
+
+    c.save()
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
 
 def generate_pdf(book, start_date, end_date, df, money_in, money_out, net_bal, msg_hindi):
     buffer = BytesIO()
@@ -109,7 +180,6 @@ def generate_pdf(book, start_date, end_date, df, money_in, money_out, net_bal, m
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
-
 
 def save_and_reset():
     # 1. Access the data currently in the widgets
@@ -245,8 +315,7 @@ if check_password():
             st.plotly_chart(fig_bar, use_container_width=True)
         else:
             st.info("No data available to generate graphs.")
-            
-                
+                        
     # --- 2. THE SIDEBAR UI ---
     with st.sidebar:
         # GUIDELINE BOX FOR USER
@@ -256,7 +325,7 @@ if check_password():
         - **Expense:** Paid By: `Cash/Bank` → Received By: `Personal Expense`
         - **Deposit:** Paid By: `Cash` → Received By: `Bank`""")
                 
-        st.header("➕ Add New Record")
+        st.header("➕ Add New Transaction")
         t_date = st.date_input("Date", datetime.now(), key="sb_date")
 
         # 1. Get the full list from DB
@@ -303,62 +372,231 @@ if check_password():
             key="save_btn"
         )
         st.divider()
+        with st.expander("👥 Adding Parties", expanded=False):
+            # --- ADD NEW PARTY SECTION ---
+            st.header("📋 Add New Party")
 
-        # --- ADD NEW PARTY SECTION ---
-        st.header("👥 Add New Party")
-
-        # 1. Fetch existing data for warning purposes
-        try:
-            existing_df = get_query("SELECT name, phone FROM accounts")
-            existing_names = existing_df['name'].tolist() if not existing_df.empty else []
-        except Exception as e:
-            st.error(f"Error fetching data: {e}")
-            existing_names = []
-
-        # 2. SEPARATE INPUT ROWS
-        new_p_raw = st.text_input("1️⃣ Party Name", placeholder="e.g., Rahul Kumar", key="p_name")
-        new_phone = st.text_input("2️⃣ Phone Number", placeholder="e.g., 9876543210", key="p_phone")
-        new_address = st.text_area("3️⃣ Full Address", placeholder="Location details...", key="p_addr", height=100)
-
-        # --- WARNING LOGIC (Not Prevention) ---
-        new_p_clean = new_p_raw.strip()
-        is_duplicate = False
-
-        if new_p_clean:
-            # Check for exact matches
-            exact_matches = [n for n in existing_names if n.lower() == new_p_clean.lower()]
-            
-            if exact_matches:
-                is_duplicate = True
-                st.warning(f"⚠️ **Note:** There is already a person named **'{new_p_clean}'** in your list.")
-                st.info("If this is a different person with the same name, you can still proceed by checking the box below.")
-            else:
-                # Check for fuzzy/similar matches
-                close_matches = difflib.get_close_matches(new_p_clean.lower(), [n.lower() for n in existing_names], n=2, cutoff=0.7)
-                if close_matches:
-                    is_duplicate = True
-                    st.info(f"💡 Similar names found: {', '.join(close_matches)}. Ensure this isn't a typo.")
-
-        # 3. THE "PROCEED ANYWAY" CHECKBOX
-        # This appears only if a duplicate/similar name is found
-        confirm_add = True
-        if is_duplicate:
-            confirm_add = st.checkbox("Yes, this is a different person. Add them anyway.", key="force_add")
-
-        # 4. ACTION BUTTON
-        # Enabled if name is typed AND (it's not a duplicate OR user checked the box)
-        if st.button("➕ Register New Party", use_container_width=True, disabled=not (new_p_clean and confirm_add)):
+            # 1. Fetch existing data for warning purposes
             try:
-                run_action(
-                    "INSERT INTO accounts (name, opening_bal, phone, address) VALUES (?, 0, ?, ?)",
-                    (new_p_clean, new_phone.strip(), new_address.strip())
-                )
-                st.success(f"✅ Registered '{new_p_clean}' successfully!")
-                st.rerun()
+                existing_df = get_query("SELECT name, phone FROM accounts")
+                existing_names = existing_df['name'].tolist() if not existing_df.empty else []
             except Exception as e:
-                st.error(f"🚫 Database error: {e}")
-                           
-    # --- MAIN AREA: TABS (Updated with Books) ---
+                st.error(f"Error fetching data: {e}")
+                existing_names = []
+
+            # 2. SEPARATE INPUT ROWS
+            new_p_raw = st.text_input("1️⃣ Party Name", placeholder="e.g., Rahul Kumar", key="p_name")
+            new_phone = st.text_input("2️⃣ Phone Number", placeholder="e.g., 9876543210", key="p_phone")
+            new_address = st.text_area("3️⃣ Full Address", placeholder="Location details...", key="p_addr", height=100)
+
+            # --- WARNING LOGIC (Not Prevention) ---
+            new_p_clean = new_p_raw.strip()
+            is_duplicate = False
+
+            if new_p_clean:
+                # Check for exact matches
+                exact_matches = [n for n in existing_names if n.lower() == new_p_clean.lower()]
+                
+                if exact_matches:
+                    is_duplicate = True
+                    st.warning(f"⚠️ **Note:** There is already a person named **'{new_p_clean}'** in your list.")
+                    st.info("If this is a different person with the same name, you can still proceed by checking the box below.")
+                else:
+                    # Check for fuzzy/similar matches
+                    close_matches = difflib.get_close_matches(new_p_clean.lower(), [n.lower() for n in existing_names], n=2, cutoff=0.7)
+                    if close_matches:
+                        is_duplicate = True
+                        st.info(f"💡 Similar names found: {', '.join(close_matches)}. Ensure this isn't a typo.")
+
+            # 3. THE "PROCEED ANYWAY" CHECKBOX
+            # This appears only if a duplicate/similar name is found
+            confirm_add = True
+            if is_duplicate:
+                confirm_add = st.checkbox("Yes, this is a different person. Add them anyway.", key="force_add")
+
+            # 4. ACTION BUTTON
+            # Enabled if name is typed AND (it's not a duplicate OR user checked the box)
+            if st.button("➕ Register New Party", use_container_width=True, disabled=not (new_p_clean and confirm_add)):
+                try:
+                    run_action(
+                        "INSERT INTO accounts (name, opening_bal, phone, address) VALUES (?, 0, ?, ?)",
+                        (new_p_clean, new_phone.strip(), new_address.strip())
+                    )
+                    st.success(f"✅ Registered '{new_p_clean}' successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"🚫 Database error: {e}")
+                
+        # --- PARTY DIRECTORY SECTION ---
+        with st.expander("📋 View, Edit or Download", expanded=False):
+            st.subheader("Master List")
+
+            # 1. Fetch data
+            directory_df = get_query("SELECT id, name, phone, address, is_active FROM accounts")
+            
+            if not directory_df.empty:
+                # --- PART A: DISPLAY LIST ---
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    search_query = st.text_input("🔍 Search list...", placeholder="Type name or phone...", key="dir_search")
+                with col2:
+                    # Filter to toggle between seeing only Active or All parties
+                    filter_status = st.selectbox("Show Status", ["Active Only", "All Records"])
+
+                view_df = directory_df.copy()
+
+                # Filter 1: By Status (Active vs Hidden)
+                if filter_status == "Active Only":
+                    view_df = view_df[view_df['is_active'] == 1]
+
+                # Filter 2: By Search Query
+                if search_query:
+                    view_df = view_df[
+                        view_df['name'].str.contains(search_query, case=False, na=False) |
+                        view_df['phone'].str.contains(search_query, case=False, na=False)
+                    ]
+
+                # --- VISUAL FIX: Replace 1/0 with Emojis for the Table ---
+                # We create a display version so the underlying data stays clean for CSV/PDF
+                display_df = view_df.copy()
+                display_df['is_active'] = display_df['is_active'].apply(lambda x: "✅ Active" if x == 1 else "❌ Hidden")
+                
+                # Rename column for better looks
+                display_df.columns = ['ID', 'Name', 'Phone', 'Address', 'Status']
+
+                st.dataframe(
+                    display_df[['ID', 'Status', 'Name', 'Phone', 'Address']], 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
+                # --- 4. Report Download Options ---
+                st.divider()
+                st.subheader("📥 Export Directory")
+
+                col_csv, col_pdf = st.columns(2)
+
+                with col_csv:
+                    csv = view_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📄 Download CSV",
+                        data=csv,
+                        file_name="party_directory.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+                with col_pdf:
+                    # Logic to generate and provide the PDF
+                    pdf_bytes = generate_directory_pdf(view_df)
+                    if pdf_bytes:
+                        st.download_button(
+                            label="📑 Download PDF",
+                            data=pdf_bytes,
+                            file_name="party_directory.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="dir_pdf_download" # Unique key is important
+                        )
+                        
+                    else:
+                        st.error("Failed to build PDF. Ensure no unusual symbols are in the text.")
+                       
+                st.divider()
+
+                # --- PART B: EDIT SECTION ---
+                st.subheader("✏️ Edit Party Details")
+
+                # 1. Fetch ALL records for the editor
+                full_directory_df = get_query("SELECT id, name, phone, address, is_active FROM accounts")
+
+                # 2. Add a filter specifically for the Edit dropdown
+                edit_view_filter = st.radio(
+                    "Filter list for editing:", 
+                    ["Show All", "Active Only", "Inactive Only"], 
+                    horizontal=True,
+                    key="edit_view_toggle"
+                )
+
+                # 3. Apply the filter to the dropdown list
+                if edit_view_filter == "Active Only":
+                    filtered_edit_df = full_directory_df[full_directory_df['is_active'] == 1]
+                elif edit_view_filter == "Inactive Only":
+                    filtered_edit_df = full_directory_df[full_directory_df['is_active'] == 0]
+                else:
+                    filtered_edit_df = full_directory_df
+
+                # 4. Create labels for the selectbox
+                party_options = filtered_edit_df.apply(
+                    lambda x: f"{'✅' if x['is_active']==1 else '❌'} {x['name']} | ID: {x['id']}", 
+                    axis=1
+                ).tolist()
+
+                selected_party_label = st.selectbox(
+                    "Select a Party to Update", 
+                    ["-- Choose --"] + party_options, 
+                    key="editor_select"
+                )
+
+                if selected_party_label != "-- Choose --":
+                    # Extract ID from the label
+                    selected_id = int(selected_party_label.split("ID: ")[1])
+                    current_person = full_directory_df[full_directory_df['id'] == selected_id].iloc[0]
+    
+                    with st.form("edit_form"):
+                        val_name = current_person['name'] if current_person['name'] else ""
+                        val_phone = current_person['phone'] if current_person['phone'] else ""
+                        val_addr = current_person['address'] if current_person['address'] else ""       
+                        
+                        updated_name = st.text_input("Edit Name", value=val_name)
+                        updated_phone = st.text_input("Edit Phone Number", value=val_phone)
+                        updated_addr = st.text_area("Edit Address", value=val_addr, height=100)
+                        
+                        # --- Toggle for Hiding (Soft Delete) ---
+                        is_active = st.toggle(
+                            "✅ Show in active lists?", 
+                            value=(current_person['is_active'] == 1), 
+                            help="Turn off to hide this party from transaction lists without deleting their history."
+                        )
+                        
+                        if st.form_submit_button("💾 Save Changes", use_container_width=True):
+                            clean_name = str(updated_name).strip() if updated_name else ""
+                            clean_phone = str(updated_phone).strip() if updated_phone else ""
+                            clean_addr = str(updated_addr).strip() if updated_addr else ""
+                            status_val = 1 if is_active else 0
+
+                            try:
+                                run_action(
+                                    "UPDATE accounts SET name=?, phone=?, address=?, is_active=? WHERE id=?",
+                                    (clean_name, clean_phone, clean_addr, status_val, selected_id)
+                                )
+                                st.success(f"✅ Changes for '{clean_name}' saved!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"🚫 Error updating: {e}")
+
+                    # --- PART C: PERMANENT DELETE (Outside Form for Safety) ---
+                    st.write("---")
+                    with st.expander("🗑️ Danger Zone (Permanent Delete)"):
+                        st.warning(f"Are you sure you want to delete **{current_person['name']}** forever?")
+                        if st.button(f"Confirm Permanent Delete: {current_person['name']}", type="primary", use_container_width=True):
+                            # SAFETY CHECK: Check if transactions exist
+                            check_trans = get_query(
+                                "SELECT COUNT(*) as total FROM transactions WHERE from_acc=? OR to_acc=?", 
+                                (current_person['name'], current_person['name'])
+                            )
+                            
+                            if check_trans['total'][0] > 0:
+                                st.error(f"❌ Cannot Delete! This party has {check_trans['total'][0]} transactions. Please use the 'Active' toggle above to hide them instead.")
+                            else:
+                                run_action("DELETE FROM accounts WHERE id=?", (selected_id,))
+                                st.success("Record deleted permanently.")
+                                st.rerun()
+                                
+            else:
+                st.info("No parties registered yet.")
+                                               
+        # --- MAIN AREA: TABS (Updated with Books) ---
     tab1, tab2, tab3, tab4 = st.tabs(["📜 Recent History", "📖 Books", "🔍 Advanced Search", "📂 Export & Tools"])
     with tab1:
         st.subheader("Full Transaction History")
@@ -518,7 +756,7 @@ if check_password():
                 bc3.metric(bal_label, f"₹{abs(net_bal):,.2f}", delta_color=delta_color)
 
                 # 4. WHATSAPP GENERATOR (Includes Dates)
-                import urllib.parse
+
                 wa_message = (
                     f"*Statement for: {selected_book}*\n"
                     f"📅 Period: {fmt_date(start_date)} to {fmt_date(end_date)}\n"
