@@ -16,6 +16,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import difflib # Ensure this is at the top of your file
 from difflib import SequenceMatcher
 from setup_db import init_db, reset_database
+import streamlit.components.v1 as components
 
 # Initialize the database by running the setup script from setup_db.py
 init_db()
@@ -329,48 +330,53 @@ if check_password():
         t_date = st.date_input("Date", datetime.now(), key="sb_date")
 
         # 1. Get the full list from DB
-        names = acc_df['name'].tolist()
-
-        # 2. Add a "Placeholder" at index 0
-        options_with_null = ["-- Select Account --"] + names
-
-        # 3. Filter the lists
-        source_options = [n for n in options_with_null if n != "Personal Expense"]
-        dest_options = [n for n in options_with_null if n != "Sales Income"]
-
-        # 4. The Selectboxes
-        f_acc = st.selectbox("Paid By (Source)", source_options, index=0, key="sb_f_acc")
-        t_acc = st.selectbox("Received By (Destination)", dest_options, index=0, key="sb_t_acc")
-
-        amt = st.number_input("Amount (INR)", min_value=0.0, step=100.0, key="sb_amt")
-        note = st.text_input("Remark", key="sb_note")
-
-        # --- CLEANED VALIDATION LOGIC ---
-        is_valid = True
-
-        # Rule 1: Check placeholders
-        if f_acc == "-- Select Account --" or t_acc == "-- Select Account --":
-            st.info("💡 Please select both Source and Destination.")
-            is_valid = False
+        active_parties_df = get_query("SELECT name FROM accounts WHERE is_active = 1 ORDER BY name ASC")
+        names = active_parties_df['name'].tolist()
         
-        # Rule 2: Cannot be the same
-        elif f_acc == t_acc:
-            st.error("❌ Source and Destination cannot be the same.")
-            is_valid = False
-            
-        # Rule 3: Check for amount
-        if amt <= 0:
-            is_valid = False
+        if not names:
+            st.warning("No active parties found. Please activate or add a party in the Directory.")
+        else:
+            # 2. Add a "Placeholder" at index 0
+            options_with_null = ["-- Select Account --"] + names
 
-        # --- SAVE BUTTON WITH CALLBACK ---
-        # We use on_click to run the save_and_reset function
-        st.button(
-            "💾 Save to Ledger", 
-            on_click=save_and_reset, 
-            disabled=not is_valid, 
-            use_container_width=True,
-            key="save_btn"
-        )
+            # 3. Filter the lists
+            source_options = [n for n in options_with_null if n != "Personal Expense"]
+            dest_options = [n for n in options_with_null if n != "Sales Income"]
+
+            # 4. The Selectboxes
+            f_acc = st.selectbox("Paid By (Source)", source_options, index=0, key="sb_f_acc")
+            t_acc = st.selectbox("Received By (Destination)", dest_options, index=0, key="sb_t_acc")
+
+            amt = st.number_input("Amount (INR)", min_value=0.0, step=100.0, key="sb_amt")
+            note = st.text_input("Remark", key="sb_note")
+
+            # --- CLEANED VALIDATION LOGIC ---
+            is_valid = True
+
+            # Rule 1: Check placeholders
+            if f_acc == "-- Select Account --" or t_acc == "-- Select Account --":
+                st.info("💡 Please select both Source and Destination.")
+                is_valid = False
+            
+            # Rule 2: Cannot be the same
+            elif f_acc == t_acc:
+                st.error("❌ Source and Destination cannot be the same.")
+                is_valid = False
+                
+            # Rule 3: Check for amount
+            if amt <= 0:
+                is_valid = False
+
+            # --- SAVE BUTTON WITH CALLBACK ---
+            # We use on_click to run the save_and_reset function
+            st.button(
+                "💾 Save to Ledger", 
+                on_click=save_and_reset, 
+                disabled=not is_valid, 
+                use_container_width=True,
+                key="save_btn"
+            )
+        
         st.divider()
         with st.expander("👥 Adding Parties", expanded=False):
             # --- ADD NEW PARTY SECTION ---
@@ -600,30 +606,38 @@ if check_password():
     tab1, tab2, tab3, tab4 = st.tabs(["📜 Recent History", "📖 Books", "🔍 Advanced Search", "📂 Export & Tools"])
     with tab1:
         st.subheader("Full Transaction History")
-        
-        # 1. Reverse the data so newest is on top
-        full_history = trans_df.iloc[::-1].copy()
-        
-        # 2. Define a function to color the rows
-        # This highlights 'Personal Expense' in light red
-        def highlight_expenses(row):
-            color = 'background-color: #ffcccc; color: black' if row.to_acc == 'Personal Expense' else ''
-            return [color] * len(row)
+        if trans_df.empty:
+            st.info("No transactions found yet. Start by adding one!")
+        else:
+            # 1. Reverse the data so newest is on top
+            full_history = trans_df.iloc[::-1].copy()
+            
+            # 2. Define a function to color the rows
+            # This highlights 'Personal Expense' in light red
+            def highlight_expenses(row):
+                color = 'background-color: #ffcccc; color: black' if row.to_acc == 'Personal Expense' else ''
+                return [color] * len(row)
 
-        # 3. Apply the styling and show ALL data
-        # We use .style to make it look professional
-        st.dataframe(
-            full_history.style.apply(highlight_expenses, axis=1), 
-            use_container_width=True,
-            height=400 # Adds a scrollbar after this height
-        )
-        
-        st.caption("💡 Red rows indicate Personal Expenses")
-        st.caption("Courtesy of Jan Gan Man Public School Muradnagar")
+            # 3. Apply the styling and show ALL data
+            # We use .style to make it look professional
+            st.dataframe(
+                full_history.style.apply(highlight_expenses, axis=1), 
+                use_container_width=True,
+                height=400 # Adds a scrollbar after this height
+            )
+            
+            st.caption("💡 Red rows indicate Personal Expenses")
+            st.caption("Courtesy of Jan Gan Man Public School Muradnagar")
 
     with tab2:
             st.subheader("📖 Account Statements (Books)")
-            all_accs = acc_df['name'].tolist()
+            show_inactive = st.checkbox("Show Inactive Books", value=False, key="toggle_inactive")
+            if show_inactive:
+                all_accs = acc_df['name'].tolist()
+            else:
+                # Assumes you have an 'is_active' column (1 for active, 0 for inactive)
+                all_accs = acc_df[acc_df['is_active'] == 1]['name'].tolist()
+            all_accs.sort() # Keep it alphabetical
             
             # 1. SELECT PARTY AND DATES
             col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
@@ -682,6 +696,7 @@ if check_password():
                                 c1, c2 = st.columns(2)
                                 if c1.button("✅ Yes, Delete", type="primary", use_container_width=True):
                                     run_action("DELETE FROM transactions WHERE id=?", (int(edit_id),))
+                                    st.session_state['confirm_delete'] = False
                                     st.session_state['should_reset'] = True  # Signal reset
                                     st.success(f"Record {edit_id} deleted.")
                                     st.rerun()
@@ -728,10 +743,13 @@ if check_password():
                                 st.caption("ℹ️ Modify a field to enable the Save button.")
 
                     else:
-                        st.error(f"ID {edit_id} not found in this book.")
-                else:
-                    st.caption("Select a record ID from the table above to Edit or Delete.")
-                                                
+                        # Check if the ID exists at all in the full database
+                        if edit_id in trans_df['id'].values:
+                            actual_book = trans_df[trans_df['id'] == edit_id]['from_acc'].values[0]
+                            st.warning(f"⚠️ ID {edit_id} belongs to **{actual_book}**, not the current book.")
+                        else:
+                            st.error(f"🚫 ID {edit_id} does not exist.")                                                
+               
                 # 3. CALCULATE TOTALS FOR SELECTED PERIOD
                 money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
                 money_out = filtered_df[filtered_df['from_acc'] == selected_book]['amount'].sum()
@@ -756,26 +774,42 @@ if check_password():
                 bc3.metric(bal_label, f"₹{abs(net_bal):,.2f}", delta_color=delta_color)
 
                 # 4. WHATSAPP GENERATOR (Includes Dates)
-
+                # 1. Build the message
                 wa_message = (
                     f"*Statement for: {selected_book}*\n"
-                    f"📅 Period: {fmt_date(start_date)} to {fmt_date(end_date)}\n"
+                    f"\U0001F4C5 Period: {fmt_date(start_date)} to {fmt_date(end_date)}\n"
                     f"---------------------------\n"
-                    f"✅ {msg_hindi}\n"
+                    f"\u2705 {msg_hindi}\n"
                     f"---------------------------\n"
                     f"Generated via JGMPS Ledger 2026."
                 )
+
+                # Encode it properly
                 encoded_msg = urllib.parse.quote(wa_message)
                 whatsapp_url = f"https://wa.me/?text={encoded_msg}"
 
-                st.markdown(f'''
+                # 3. Use a Component instead of Markdown
+                # This creates a "Real" button that browsers handle better
+                button_html = f"""
                     <a href="{whatsapp_url}" target="_blank" style="text-decoration: none;">
-                        <div style="background-color: #25D366; color: white; padding: 10px; text-align: center; border-radius: 8px; font-weight: bold; margin-top: 15px;">
-                            📲 Send {start_date.strftime('%b')} Statement via WhatsApp
+                        <div style="
+                            background-color: #25D366; 
+                            color: white; 
+                            padding: 15px; 
+                            text-align: center; 
+                            border-radius: 10px; 
+                            font-family: sans-serif; 
+                            font-weight: bold;
+                            cursor: pointer;
+                        ">
+                            📲 Share Statement via WhatsApp
                         </div>
                     </a>
-                ''', unsafe_allow_html=True)
-                
+                """
+
+                # Render the component (height 70 is usually enough for one button)
+                components.html(button_html, height=80)
+         
                 # --- FORMAL PDF / PRINT REPORT SECTION ---
                 st.divider()
                 if st.button(f"📄 Generate Formal Report ({fmt_date(start_date)} to {fmt_date(end_date)})", use_container_width=True, key="open_report"):
@@ -846,7 +880,9 @@ if check_password():
         st.subheader("Search your Ledger")
         search = st.text_input("Type name or note to filter...", key="main_search_input")
         if search:
-            filt = trans_df[trans_df.astype(str).apply(lambda x: search.lower() in x.str.lower().values, axis=1)]
+            # Safer and faster way to search across all columns
+            search_query = search.lower()
+            filt = trans_df[trans_df.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)]
             st.write(f"Found {len(filt)} matching records:")
             st.dataframe(filt, use_container_width=True)
             
