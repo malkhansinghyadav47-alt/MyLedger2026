@@ -631,7 +631,7 @@ if check_password():
 
     with tab2:
             st.subheader("📖 Account Statements (Books)")
-            show_inactive = st.checkbox("Show Inactive Books", value=True, key="toggle_inactive")
+            show_inactive = st.checkbox("Show Inactive Books", value=False, key="toggle_inactive")
             
             if show_inactive:
                 all_accs = acc_df['name'].tolist()
@@ -981,6 +981,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
