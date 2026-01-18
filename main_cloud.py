@@ -634,11 +634,24 @@ if check_password():
             show_inactive = st.checkbox("Show Inactive Books", value=True, key="toggle_inactive")
             
             if show_inactive:
+                # DEBUG MESSAGE 1
+                st.info("DEBUG: Showing ALL accounts because checkbox is ON")
                 all_accs = acc_df['name'].tolist()
             else:
-                # Assumes you have an 'is_active' column (1 for active, 0 for inactive)
-                all_accs = acc_df[acc_df['is_active'] == 1]['name'].tolist()
-                all_accs.sort() # Keep it alphabetical
+                # DEBUG MESSAGE 2
+                st.info("DEBUG: Filtering for ACTIVE accounts only")
+                
+                # Let's check what is actually inside the 'is_active' column online
+                # This shows you the unique values (should be 0 and 1)
+                st.write(f"DEBUG: Found these status values in DB: {acc_df['is_active'].unique()}")
+                
+                # Try the more robust filter that works for strings or integers
+                all_accs = acc_df[acc_df['is_active'].astype(str).isin(['1', '1.0'])]['name'].tolist()
+            
+            all_accs.sort()
+            
+            # DEBUG MESSAGE 3: Check the final count
+            st.warning(f"DEBUG: Final list has {len(all_accs)} names")
             
             # 1. SELECT PARTY AND DATES
             col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
@@ -981,6 +994,7 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
 
 
 
