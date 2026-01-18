@@ -631,20 +631,39 @@ if check_password():
 
     with tab2:
             st.subheader("📖 Account Statements (Books)")
+
+            # 1. Fetch fresh data right before the filter
+            # Replace 'get_accounts()' with whatever function you use to load your accounts
+            acc_df = run_query("SELECT * FROM accounts") 
+
             show_inactive = st.checkbox("Show Inactive Books", value=False, key="toggle_inactive")
+
+            # 2. Filter logic
             if show_inactive:
-                all_accs = acc_df['name'].tolist()
+                # Use .unique() to ensure no duplicates
+                all_accs = sorted(acc_df['name'].unique().tolist())
             else:
-                # Assumes you have an 'is_active' column (1 for active, 0 for inactive)
-                all_accs = acc_df[acc_df['is_active'] == 1]['name'].tolist()
-            all_accs.sort() # Keep it alphabetical
-            
-            # 1. SELECT PARTY AND DATES
+                # Ensure 'is_active' is treated as an integer
+                active_mask = acc_df['is_active'].astype(int) == 1
+                all_accs = sorted(acc_df[active_mask]['name'].unique().tolist())
+
+            # 3. Handle the Selectbox
             col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
             with col_s1:
-                selected_book = st.selectbox("Select Book to View", all_accs, key="book_selector")
+                # Add a fallback if the list is empty
+                if not all_accs:
+                    st.warning("No accounts found.")
+                    selected_book = None
+                else:
+                    selected_book = st.selectbox(
+                        "Select Book to View", 
+                        options=all_accs, 
+                        key="book_selector"
+                    )
+                    
             with col_s2:
                 start_date = st.date_input("From", datetime(2026, 1, 1), key="book_start")
+            
             with col_s3:
                 end_date = st.date_input("To", datetime.now(), key="book_end")
             
@@ -978,3 +997,4 @@ if check_password():
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
+
