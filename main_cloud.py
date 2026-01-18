@@ -188,8 +188,15 @@ def save_and_reset():
     f = st.session_state.get("sb_f_acc")
     t = st.session_state.get("sb_t_acc")
     a = st.session_state.get("sb_amt", 0.0)
-    n = st.session_state.get("sb_note", "")
+    # n = st.session_state.get("sb_note", "")
     d = st.session_state.get("sb_date", datetime.now())
+
+    raw_note = st.session_state.get("sb_note", "")
+    t_type = st.session_state.get("sb_t_type", "Payment")
+    t_status = st.session_state.get("sb_t_status", "N/A")
+    
+    # फाइनल नोट जो DB में जाएगा
+    n = f"[{t_type}] | Status: {t_status} | {raw_note}"
 
     # 2. Save to Database
     run_action("INSERT INTO transactions (date, from_acc, to_acc, amount, note) VALUES (?,?,?,?,?)",
@@ -327,48 +334,87 @@ if check_password():
         - **Deposit:** Paid By: `Cash` → Received By: `Bank`""")
                 
         st.header("➕ Add New Transaction")
-        t_date = st.date_input("Date", datetime.now(), key="sb_date")
+
+        # --- NEW: Quick Entry Buttons ---
+        st.markdown("##### ⚡ Quick Fill (जल्दी भरने के लिए)")
+        q_col1, q_col2 = st.columns(2)
+        q_col3, q_col4 = st.columns(2)
+
+        if q_col1.button("☕ Tea/etc"):
+            st.session_state.sb_f_acc = "Cash"
+            st.session_state.sb_t_acc = "Office Expenses"
+            st.session_state.sb_note = "चाय और पानी का खर्च"
+
+        if q_col2.button("⛽ Fuel"):
+            st.session_state.sb_f_acc = "Cash"
+            st.session_state.sb_t_acc = "Conveyance"
+            st.session_state.sb_note = "गाड़ी का पेट्रोल"
+
+        if q_col3.button("🏗️ Const."):
+            st.session_state.sb_t_acc = "Construction Expense"
+            st.session_state.sb_note = "निर्माण कार्य संबंधित"
+
+        if q_col4.button("📦 Misc"):
+            st.session_state.sb_f_acc = "Cash"
+            st.session_state.sb_t_acc = "Miscellaneous"
+            st.session_state.sb_note = "अन्य छोटा खर्च"
+
+        st.write("---")
+
+        # --- MAIN FORM ---
 
         # 1. Get the full list from DB
         active_parties_df = get_query("SELECT name FROM accounts WHERE is_active = 1 ORDER BY name ASC")
         names = active_parties_df['name'].tolist()
-        
+
         if not names:
             st.warning("No active parties found. Please activate or add a party in the Directory.")
         else:
-            # 2. Add a "Placeholder" at index 0
             options_with_null = ["-- Select Account --"] + names
-
-            # 3. Filter the lists
             source_options = [n for n in options_with_null if n != "Personal Expense"]
             dest_options = [n for n in options_with_null if n != "Sales Income"]
 
-            # 4. The Selectboxes
-            f_acc = st.selectbox("Paid By (Source)", source_options, index=0, key="sb_f_acc")
-            t_acc = st.selectbox("Received By (Destination)", dest_options, index=0, key="sb_t_acc")
+            f_acc = st.selectbox("Paid By (Source)", source_options, key="sb_f_acc")
+            t_acc = st.selectbox("Received By (Destination)", dest_options, key="sb_t_acc")  
+                      
+            col_type, col_status = st.columns(2)
+            with col_type:
+                # Transaction Type
+                t_type = st.selectbox("Type", ["Payment", "Contract/Deal", "Adjustment"], key="sb_t_type")               
+            with col_type:
+                # Status Tag
+                t_status = st.selectbox("Status", ["N/A", "Work Started", "In Progress", "Completed"], key="sb_t_status")
+            
+            # एक रो में दो कॉलम्स बनाएँ
+            col_date, col_amt = st.columns(2)
+            with col_date:
+                t_date = st.date_input("Date", datetime.now(), key="sb_date")
+            with col_amt:
+                amt = st.number_input("Amount (INR)", min_value=0.0, step=100.0, key="sb_amt")
+            
+            # Note field (will be pre-filled by quick buttons)
+            raw_note = st.text_input("Remark", key="sb_note")
 
-            amt = st.number_input("Amount (INR)", min_value=0.0, step=100.0, key="sb_amt")
-            note = st.text_input("Remark", key="sb_note")
+            # --- महत्वपूर्ण: टैग्स को नोट के साथ जोड़ना ---
+            # यह आपके पुराने DB स्ट्रक्चर को खराब नहीं करेगा
+            full_note = f"[{t_type}] | Status: {t_status} | {raw_note}"
 
-            # --- CLEANED VALIDATION LOGIC ---
+            # --- VALIDATION ---
             is_valid = True
-
-            # Rule 1: Check placeholders
             if f_acc == "-- Select Account --" or t_acc == "-- Select Account --":
                 st.info("💡 Please select both Source and Destination.")
                 is_valid = False
-            
-            # Rule 2: Cannot be the same
             elif f_acc == t_acc:
                 st.error("❌ Source and Destination cannot be the same.")
                 is_valid = False
-                
-            # Rule 3: Check for amount
             if amt <= 0:
                 is_valid = False
 
+            # --- SAVE BUTTON ---
+            # यहाँ हम एक चालाकी करेंगे: 
+            # बटन दबाने से ठीक पहले 'sb_note' को 'full_note' से बदल देंगे ताकि डेटाबेस में टैग्स जाएँ
             # --- SAVE BUTTON WITH CALLBACK ---
-            # We use on_click to run the save_and_reset function
+            # यह कोड आपके पुराने 'if is_valid' वाले हिस्से की जगह लेगा
             st.button(
                 "💾 Save to Ledger", 
                 on_click=save_and_reset, 
@@ -644,10 +690,8 @@ if check_password():
             col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
             with col_s1:
                 selected_book = st.selectbox("Select Book to View", all_accs, key="book_selector")            
-                    
             with col_s2:
                 start_date = st.date_input("From", datetime(2026, 1, 1), key="book_start")
-            
             with col_s3:
                 end_date = st.date_input("To", datetime.now(), key="book_end")
             
@@ -977,13 +1021,58 @@ if check_password():
                     st.rerun()
                         
         st.divider()
-                
+
+        # बैकअप सेक्शन के लिए एक हेडिंग
+        st.subheader("🛠️ डेटा सुरक्षा (Backup)")
+
+        # बैकअप फाइल को पढ़ने और बटन दिखाने का सीधा तरीका
+        try:
+            with open("business_ledger.db", "rb") as f:
+                st.download_button(
+                    label="📥 Download Database Backup",
+                    data=f,
+                    file_name="ledger_backup.db",
+                    mime="application/octet-stream",
+                    help="अपने पूरे डेटाबेस की कॉपी सुरक्षित रखने के लिए यहाँ क्लिक करें"
+                )
+        except FileNotFoundError:
+            st.error("डेटाबेस फाइल नहीं मिली! कृपया पहले एक एंट्री करें।")
+
+        st.divider()
+
+        st.subheader("📤 बैकअप वापस डालें (Restore)")
+
+        # 1. फाइल अपलोडर
+        uploaded_file = st.file_uploader("अपनी बैकअप फाइल (.db) चुनें", type="db")
+
+        if uploaded_file is not None:
+            # 2. सुरक्षा की पहली परत: पासवर्ड
+            restore_pwd = st.text_input("Security Password डालें", type="password", key="res_pwd")
+            
+            # 3. सुरक्षा की दूसरी परत: कन्फर्मेशन चेकबॉक्स
+            st.warning("⚠️ चेतावनी: डेटा रिस्टोर करने से आपका अभी का सारा हिसाब मिट जाएगा और पुरानी फाइल वाला डेटा लोड हो जाएगा।")
+            confirm_check = st.checkbox("हाँ, मैं समझता हूँ और डेटा ओवरराइट करना चाहता हूँ।")
+
+            # 4. बटन तभी काम करेगा जब दोनों शर्तें पूरी होंगी
+            if st.button("🔄 Start Restoration"):
+                if restore_pwd == "Admin@123": # अपना पासवर्ड यहाँ लिखें
+                    if confirm_check:
+                        with open("business_ledger.db", "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        st.success("✅ डेटा सफलतापूर्वक ओवरराइट कर दिया गया है!")
+                        if st.button("🔄 Refresh App Now"):
+                            st.rerun()
+                        st.balloons()
+                        # st.info("बदलाव देखने के लिए कृपया ब्राउज़र पेज को रिफ्रेश (Refresh) करें।")
+                    else:
+                        st.error("❌ कृपया ऊपर दिए गए 'चेकबॉक्स' को टिक करके पुष्टि (Confirm) करें।")
+                else:
+                    st.error("❌ गलत पासवर्ड!")
+
+        st.divider()
+
+        # लॉगआउट बटन
         if st.button("🚨 Log Out", key="logout_btn"):
             st.session_state["authenticated"] = False
             st.rerun()
-
-
-
-
-
-
