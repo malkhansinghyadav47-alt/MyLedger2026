@@ -337,6 +337,20 @@ if check_password():
 
         # --- NEW: Quick Entry Buttons ---
         st.markdown("##### ⚡ Quick Fill (जल्दी भरने के लिए)")
+
+        st.markdown("""
+        <style>
+        /* Force 2 columns even on mobile */
+        @media (max-width: 768px) {
+            div[data-testid="column"] {
+                flex: 0 0 50% !important;
+                max-width: 50% !important;
+            }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+
         q_col1, q_col2 = st.columns(2)
         q_col3, q_col4 = st.columns(2)
 
