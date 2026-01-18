@@ -340,21 +340,22 @@ if check_password():
         q_col1, q_col2 = st.columns(2)
         q_col3, q_col4 = st.columns(2)
 
-        if q_col1.button("☕ Tea/etc"):
+        if q_col1.button("☕ Tea/etc", use_container_width=True):
             st.session_state.sb_f_acc = "Cash"
             st.session_state.sb_t_acc = "Office Expenses"
             st.session_state.sb_note = "चाय और पानी का खर्च"
 
-        if q_col2.button("⛽ Fuel"):
+        if q_col2.button("⛽ Fuel", use_container_width=True):
             st.session_state.sb_f_acc = "Cash"
             st.session_state.sb_t_acc = "Conveyance"
-            st.session_state.sb_note = "गाड़ी का पेट्रोल"
+            st.session_state.sb_note = "गाड़ी का पेट्रोल"
 
-        if q_col3.button("🏗️ Const."):
+        if q_col3.button("🏗️ Const.", use_container_width=True):
+            st.session_state.sb_f_acc = "Cash"
             st.session_state.sb_t_acc = "Construction Expense"
             st.session_state.sb_note = "निर्माण कार्य संबंधित"
 
-        if q_col4.button("📦 Misc"):
+        if q_col4.button("📦 Misc", use_container_width=True):
             st.session_state.sb_f_acc = "Cash"
             st.session_state.sb_t_acc = "Miscellaneous"
             st.session_state.sb_note = "अन्य छोटा खर्च"
