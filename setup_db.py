@@ -1,36 +1,63 @@
 import sqlite3
-# 1. Define the initialization logic
+
 def init_db():
+    # अगर यह जानकारी पहले से मौजूद है, तो इसे दोबारा मत डालो और चुपचाप आगे बढ़ जाओ
+    #"""डेटाबेस और टेबल्स को इनिशियलाइज़ करें, साथ ही डिफ़ॉल्ट खाते डालें।"""
     with sqlite3.connect('business_ledger.db') as conn:
         cursor = conn.cursor()
+        # अगर यह जानकारी पहले से मौजूद है, तो इसे दोबारा मत डालो और चुपचाप आगे बढ़ जाओ  
+        # 1. Accounts Table (is_active के साथ)
         cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS accounts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        opening_bal REAL DEFAULT 0,
-                        phone TEXT,
-                        address TEXT
-                    )
-                ''')
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                opening_bal REAL DEFAULT 0,
+                phone TEXT,
+                address TEXT,
+                is_active INTEGER DEFAULT 1
+            )
+        ''')
         
-        cursor.execute('''CREATE TABLE IF NOT EXISTS transactions 
-                          (id INTEGER PRIMARY KEY, date TEXT, from_acc TEXT, to_acc TEXT, amount REAL, note TEXT)''')
+        # अगर यह जानकारी पहले से मौजूद है, तो इसे दोबारा मत डालो और चुपचाप आगे बढ़ जाओ
+        # 2. Transactions Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                date TEXT, 
+                from_acc TEXT, 
+                to_acc TEXT, 
+                amount REAL, 
+                note TEXT
+            )
+        ''')
         
-        # Add default accounts if they don't exist
-        defaults = [('Cash', 0), ('Bank', 0), ('Sales Income', 0), ('Personal Expense', 0)]
+        # 3. अपडेटेड डिफ़ॉल्ट खाते
+        # यहाँ 'Plot Filling Expense' को बदलकर 'Construction Expense' कर दिया गया है
+        defaults = [
+            ('Cash', 0), ('Bank', 0), ('Sales Income', 0), 
+            ('Personal Expense', 0), ('Office Expenses', 0), 
+            ('Conveyance', 0), ('Miscellaneous', 0), 
+            ('School Expenses', 0), ('Bills', 0),
+            ('Salary Expense', 0), ('Construction Expense', 0)
+        ]
+        
+        # अगर यह जानकारी पहले से मौजूद है, तो इसे दोबारा मत डालो और चुपचाप आगे बढ़ जाओ
         for name, bal in defaults:
-            cursor.execute("INSERT OR IGNORE INTO accounts (name, opening_bal) VALUES (?, ?)", (name, bal))
+            cursor.execute("""
+                INSERT OR IGNORE INTO accounts (name, opening_bal, is_active) 
+                VALUES (?, ?, 1)
+            """, (name, bal))
+            
         conn.commit()
         
 def reset_database():
+    """सावधानी: यह सभी ट्रांजेक्शन मिटा देगा!"""
     with sqlite3.connect('business_ledger.db') as conn:
         cursor = conn.cursor()
-        # 1. Clear all transactions
         cursor.execute("DELETE FROM transactions")
-        # 2. Reset the sequence counter for this table
         cursor.execute("DELETE FROM sqlite_sequence WHERE name='transactions'")
         conn.commit()
-    print("IDs have been reset to 1!")
+    print("Database Transactions Reset Successfully!")
     
-# 2. RUN IT IMMEDIATELY
-# init_db()
+# ऐप के स्टार्टअप पर इसे रन करें -> I've done in main application file
+#init_db()
