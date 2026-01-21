@@ -15,12 +15,18 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import difflib # Ensure this is at the top of your file
 from difflib import SequenceMatcher
-from setup_db import init_db, reset_database
+from setup_db import init_db, reset_database, upgrade_database
 import streamlit.components.v1 as components
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from io import BytesIO
 
-# Initialize the database by running the setup script from setup_db.py
+# Initialize the database from setup_db.py
 init_db()
+
 # reset_database()
+
+# upgrade_database()
 
 # --- CLEAN DATABASE HELPERS ---
 DB_FILE = 'business_ledger.db'
@@ -64,10 +70,6 @@ def fmt_date(d):
 pdfmetrics.registerFont(
     TTFont("Noto", "fonts/NotoSans-Regular.ttf")
 )
-
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from io import BytesIO
 
 def generate_directory_pdf(df):
     buffer = BytesIO()
@@ -202,14 +204,16 @@ def save_and_reset():
     run_action("INSERT INTO transactions (date, from_acc, to_acc, amount, note) VALUES (?,?,?,?,?)",
                (d.strftime("%Y-%m-%d"), f, t, a, n))
 
-# 3. FORCE INITIALIZATION (The Update)
+
+    # 3. FORCE INITIALIZATION (The Update)
     # Instead of deleting, we set them back to their default values
     st.session_state["sb_f_acc"] = "-- Select Account --"
     st.session_state["sb_t_acc"] = "-- Select Account --"
     st.session_state["sb_amt"] = 0.0
     st.session_state["sb_note"] = ""
             
-    st.toast(f"✅ Saved ₹{a} Successfully!")
+    st.toast(f"✅ Saved ₹{a} Successfully!", icon="💰")
+    st.rerun()
 
 # --- 1. SETTINGS & SECURITY ---
 st.set_page_config(page_title="Ledger 2026", layout="wide", page_icon="📈")
@@ -438,6 +442,15 @@ if check_password():
                 key="save_btn"
             )
         
+            if not is_valid:
+                if amt <= 0:
+                    st.caption("⚠️ कृपया सेव करने के लिए Amount etc दर्ज करें।")
+                elif f_acc == t_acc:
+                    st.caption("⚠️ Source और Destination अकाउंट अलग-अलग होने चाहिए।")
+            
+            # बटन के बाद थोड़ा स्पेस
+            st.write("") 
+              
         st.divider()
         with st.expander("👥 Adding Parties", expanded=False):
             # --- ADD NEW PARTY SECTION ---
@@ -664,7 +677,7 @@ if check_password():
                 st.info("No parties registered yet.")
                                                
         # --- MAIN AREA: TABS (Updated with Books) ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📜 Recent History", "📖 Books", "🔍 Advanced Search", "📂 Export & Tools"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📜 Recent History", "📖 Books", "📖 Trial Balance", "🔍 Advanced Search", "📂 Export & Tools"])
     with tab1:
         st.subheader("Full Transaction History")
         if trans_df.empty:
@@ -937,8 +950,71 @@ if check_password():
                     
             else:
                 st.warning(f"No transactions found for {selected_book} between {fmt_date(start_date)} and {fmt_date(end_date)}.")
+
+    with tab3: 
+        st.subheader("⚖️ Trial Balance")
+
+        if not trans_df.empty:
+            # 1. Calculate Net Balances
+            all_accounts = pd.concat([trans_df['from_acc'], trans_df['to_acc']]).unique()
+            balance_data = []
+            
+            for acc in sorted(all_accounts):
+                total_out = trans_df[trans_df['from_acc'] == acc]['amount'].sum()
+                total_in = trans_df[trans_df['to_acc'] == acc]['amount'].sum()
+                balance_data.append({
+                    "Account Name": acc,
+                    "Total In": total_in,
+                    "Total Out": total_out,
+                    "Net Balance": total_in - total_out
+                })
+            
+            trial_report = pd.DataFrame(balance_data)
+
+            # 2. Professional Display (Alignment is automatic for NumberColumn)
+
+
+            st.dataframe(
+                trial_report,
+                column_config={
+                    "Account Name": st.column_config.TextColumn("Account Name", width="medium"),
+                    "Total In": st.column_config.NumberColumn("Total In", format="%.2f"),
+                    "Total Out": st.column_config.NumberColumn("Total Out", format="%.2f"),
+                    "Net Balance": st.column_config.NumberColumn("Net Balance", format="%.2f"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # 3. Summary Totals
+            # 3. Summary Totals aligned with table columns
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 2])  # same visual proportion as table
+
+            total_in_sum = trial_report["Total In"].sum()
+            total_out_sum = trial_report["Total Out"].sum()
+            difference = trial_report["Net Balance"].sum()
+
+            # Leave Account Name column empty
+            with c1:
+                st.markdown("")
+
+            with c2:
+                st.metric("Total Inflow", f"{total_in_sum:,.2f}")
+
+            with c3:
+                st.metric("Total Outflow", f"{total_out_sum:,.2f}")
+
+            with c4:  
+                if abs(difference) < 0.01:
+                    st.metric("System Difference", "0.00", delta="Balanced", delta_color="normal")
+                    st.success("✅ System Balanced")
+                else:
+                    st.metric("System Difference", f"{difference:,.2f}", delta="Out of Balance", delta_color="inverse")
+
+        else:
+            st.info("No transactions available.")
         
-    with tab3:
+    with tab4:
         st.subheader("Search your Ledger")
         search = st.text_input("Type name or note to filter...", key="main_search_input")
         if search:
@@ -955,7 +1031,7 @@ if check_password():
                     st.warning(f"Deleted transaction {del_id}")
                     st.rerun()
 
-    with tab4:
+    with tab5:
  
         st.subheader("📑 Financial Reports & Export")
         
