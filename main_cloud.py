@@ -247,6 +247,29 @@ def color_balance(val):
         pass
     return ""
 
+def current_fin_year():
+    today = datetime.now()
+    year = today.year
+    if today.month < 4:
+        return f"{year-1}-{str(year)[-2:]}"
+    else:
+        return f"{year}-{str(year+1)[-2:]}"
+
+def get_opening_balance(account, fin_year):
+    df = get_query("""
+        SELECT balance, type 
+        FROM opening_balances 
+        WHERE account_name=? AND financial_year=?
+    """, (account, fin_year))
+
+    if df.empty:
+        return 0
+
+    bal = float(df.iloc[0]["balance"])
+    typ = df.iloc[0]["type"]
+
+    return bal if typ == "Debit" else -bal
+
 
 # --- 3. MAIN APP ---
 if check_password():
@@ -262,7 +285,8 @@ if check_password():
     def get_bal(name):
         inflow = trans_df[trans_df['to_acc'] == name]['amount'].sum()
         outflow = trans_df[trans_df['from_acc'] == name]['amount'].sum()
-        open_bal = acc_df[acc_df['name'] == name]['opening_bal'].values[0] if name in acc_df['name'].values else 0
+        fy = current_fin_year()
+        open_bal = get_opening_balance(name, fy)
         return open_bal + inflow - outflow
 
     cash = get_bal("Cash")
@@ -464,61 +488,81 @@ if check_password():
             st.write("") 
               
         st.divider()
-        with st.expander("👥 Adding Parties", expanded=False):
-            # --- ADD NEW PARTY SECTION ---
-            st.header("📋 Add New Party")
 
-            # 1. Fetch existing data for warning purposes
+        # --- 1. CALLBACK FUNCTION (Must be at the top) ---
+        def register_party_callback():
+            """
+            This function runs AFTER the button is clicked but BEFORE 
+            the next page rerun, preventing the 'instantiated' error.
+            """
+            # Get values from session state
+            name = st.session_state.input_name.strip().title()
+            phone = st.session_state.input_phone.strip()
+            addr = st.session_state.input_addr.strip()
+            force = st.session_state.force_check
+
+            if not name:
+                st.session_state.form_error = "Please enter a name."
+                return
+
+            # Fetch existing names for duplicate check
             try:
-                existing_df = get_query("SELECT name, phone FROM accounts")
-                existing_names = existing_df['name'].tolist() if not existing_df.empty else []
-            except Exception as e:
-                st.error(f"Error fetching data: {e}")
+                existing_df = get_query("SELECT name FROM accounts")
+                existing_names = [str(n).strip().lower() for n in existing_df['name']] if existing_df is not None else []
+            except:
                 existing_names = []
 
-            # 2. SEPARATE INPUT ROWS
-            new_p_raw = st.text_input("1️⃣ Party Name", placeholder="e.g., Rahul Kumar", key="p_name")
-            new_phone = st.text_input("2️⃣ Phone Number", placeholder="e.g., 9876543210", key="p_phone")
-            new_address = st.text_area("3️⃣ Full Address", placeholder="Location details...", key="p_addr", height=100)
+            # Duplicate Logic
+            is_duplicate = name.lower() in existing_names
+            matches = difflib.get_close_matches(name.lower(), existing_names, n=1, cutoff=0.8)
 
-            # --- WARNING LOGIC (Not Prevention) ---
-            new_p_clean = new_p_raw.strip()
-            is_duplicate = False
-
-            if new_p_clean:
-                # Check for exact matches
-                exact_matches = [n for n in existing_names if n.lower() == new_p_clean.lower()]
-                
-                if exact_matches:
-                    is_duplicate = True
-                    st.warning(f"⚠️ **Note:** There is already a person named **'{new_p_clean}'** in your list.")
-                    st.info("If this is a different person with the same name, you can still proceed by checking the box below.")
-                else:
-                    # Check for fuzzy/similar matches
-                    close_matches = difflib.get_close_matches(new_p_clean.lower(), [n.lower() for n in existing_names], n=2, cutoff=0.7)
-                    if close_matches:
-                        is_duplicate = True
-                        st.info(f"💡 Similar names found: {', '.join(close_matches)}. Ensure this isn't a typo.")
-
-            # 3. THE "PROCEED ANYWAY" CHECKBOX
-            # This appears only if a duplicate/similar name is found
-            confirm_add = True
-            if is_duplicate:
-                confirm_add = st.checkbox("Yes, this is a different person. Add them anyway.", key="force_add")
-
-            # 4. ACTION BUTTON
-            # Enabled if name is typed AND (it's not a duplicate OR user checked the box)
-            if st.button("➕ Register New Party", use_container_width=True, disabled=not (new_p_clean and confirm_add)):
+            if (is_duplicate or matches) and not force:
+                st.session_state.form_warning = f"⚠️ Duplicate detected for '{name}'. Check 'Skip duplicate check' to proceed."
+            else:
                 try:
-                    run_action(
-                        "INSERT INTO accounts (name, opening_bal, phone, address) VALUES (?, 0, ?, ?)",
-                        (new_p_clean, new_phone.strip(), new_address.strip())
-                    )
-                    st.success(f"✅ Registered '{new_p_clean}' successfully!")
-                    st.rerun()
+                    # Database Action
+                    run_action("INSERT INTO accounts (name, phone, address) VALUES (?, ?, ?)", (name, phone, addr))
+                    
+                    # CLEAR INPUTS SAFELY
+                    st.session_state.input_name = ""
+                    st.session_state.input_phone = ""
+                    st.session_state.input_addr = ""
+                    st.session_state.force_check = False
+                    st.session_state.form_success = f"✅ Registered '{name}' successfully!"
+                    st.session_state.form_warning = ""
+                    st.session_state.form_error = ""
                 except Exception as e:
-                    st.error(f"🚫 Database error: {e}")
+                    if "UNIQUE constraint failed" in str(e):
+                        st.session_state.form_error = f"🚫 '{name}' already exists. Please add a detail (e.g., '{name} 2' or '{name} - Delhi')."
+                    else:
+                        st.session_state.form_error = f"🚫 Error: {e}"
+
+        # --- 2. UI LAYOUT ---
+        with st.expander("👥 Adding Parties", expanded=False):
+            st.header("📋 Add New Party")
+
+            # Display status messages from session state
+            if st.session_state.get("form_error"):
+                st.error(st.session_state.form_error)
+            if st.session_state.get("form_warning"):
+                st.warning(st.session_state.form_warning)
+            if st.session_state.get("form_success"):
+                st.success(st.session_state.form_success)
+                st.session_state.form_success = "" # Clear after showing once
+
+            # --- 3. THE FORM (Using the on_click callback) ---
+            with st.form("party_form"):
+                st.text_input("1️⃣ Party Name", placeholder="e.g., Rahul Kumar", key="input_name")
+                st.text_input("2️⃣ Phone Number", placeholder="e.g., 9876543210", key="input_phone")
+                st.text_area("3️⃣ Full Address", placeholder="Location details...", height=100, key="input_addr")
+                st.checkbox("Skip duplicate check", key="force_check")
                 
+                # We use on_click to trigger the logic before the page redraws
+                st.form_submit_button("➕ Register New Party", 
+                                    on_click=register_party_callback, 
+                                    use_container_width=True)
+                
+                                                            
         # --- PARTY DIRECTORY SECTION ---
         with st.expander("View, Edit, Delete or Download Parties 📋", expanded=False):
             st.subheader("Master List")
@@ -689,7 +733,7 @@ if check_password():
                 st.info("No parties registered yet.")
                                                
         # --- MAIN AREA: TABS (Updated with Books) ---
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📜 Recent History", "📖 Books", "📖 Trial Balance", "🔍 Advanced Search", "📂 Export & Tools"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📜 Recent History", "📖 Books", "📖 Trial Balance", "🔍 Advanced Search", "📖 Opening Balance", "📂 Export & Tools"])
     with tab1:
         st.subheader("Full Transaction History")
         if trans_df.empty:
@@ -743,17 +787,65 @@ if check_password():
             mask = (book_df['date'] >= start_date) & (book_df['date'] <= end_date)
             filtered_df = book_df.loc[mask]
             
+            # ---- FINANCIAL YEAR SELECTION (TEMP FIX) ----
+            selected_year = "2025-26"   # बाद में dropdown से आएगा
+
+            # ---- FETCH OPENING BALANCE FROM TABLE ----
+            opening = get_opening_balance(selected_book, selected_year)
+
+            # ---- CALCULATE PREVIOUS TRANSACTIONS BEFORE START DATE ----
+            previous_df = book_df[book_df['date'] < start_date]
+
+            prev_balance = 0.0
+            for _, row in previous_df.iterrows():
+                if row["to_acc"] == selected_book:
+                    prev_balance += row["amount"]
+                else:
+                    prev_balance -= row["amount"]
+
+            running_balance = opening + prev_balance
+
+            st.success(f"Opening Balance ({selected_year}) : ₹{opening:,.2f}")
+                        
             if not filtered_df.empty:
                 st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
                 # st.dataframe(filtered_df, use_container_width=True)
                 
-                # ---- BUILD RUNNING BALANCE LEDGER ----
-                ledger_rows = []
-                running_balance = 0.0
-
                 # Sort properly by date + id to maintain order
                 filtered_df_sorted = filtered_df.sort_values(by=["date", "id"])
 
+                # ---- CALCULATE BALANCE BEFORE START DATE (PREVIOUS YEAR / PERIOD) ----
+                previous_df = book_df[book_df['date'] < start_date]
+                prev_balance = 0.0
+                #running_balance = 0.0
+                selected_year = "2025-26"   # अभी fix, बाद में dropdown
+
+                opening = get_opening_balance(selected_book, selected_year)
+                running_balance = opening + prev_balance
+
+                st.success(f"Opening Balance ({selected_year}) : ₹{opening:,.2f}")
+                    
+                ledger_rows = []
+
+                # ---- ADD OPENING BALANCE ROW ----
+                opening_total = opening + prev_balance
+
+                ledger_rows.append({
+                    "Date": start_date,
+                    "Particular": "Opening Balance",
+                    "Debit": opening_total if opening_total > 0 else 0.0,
+                    "Credit": abs(opening_total) if opening_total < 0 else 0.0,
+                    "Balance": opening_total,
+                    "Note": "Balance brought forward",
+                    "ID": ""
+                })
+                                                  
+                for _, row in previous_df.iterrows():
+                    if row["to_acc"] == selected_book:
+                        prev_balance += row["amount"]
+                    else:
+                        prev_balance -= row["amount"]
+                                
                 for _, row in filtered_df_sorted.iterrows():
                     if row["to_acc"] == selected_book:
                         # Debit
@@ -1030,11 +1122,16 @@ if check_password():
             for acc in sorted(all_accounts):
                 total_out = trans_df[trans_df['from_acc'] == acc]['amount'].sum()
                 total_in = trans_df[trans_df['to_acc'] == acc]['amount'].sum()
+                open_bal = get_opening_balance(acc, current_fin_year())
+
+                net = open_bal + total_in - total_out
+
                 balance_data.append({
                     "Account Name": acc,
+                    "Opening": open_bal,
                     "Total In": total_in,
                     "Total Out": total_out,
-                    "Net Balance": total_in - total_out
+                    "Net Balance": net
                 })
             
             trial_report = pd.DataFrame(balance_data)
@@ -1115,7 +1212,87 @@ if check_password():
                     st.warning(f"Deleted transaction {del_id}")
                     st.rerun()
 
+
     with tab5:
+        st.subheader("📂 Opening Balances (Financial Year Wise)")
+
+        # --- SELECT FINANCIAL YEAR ---
+        fy_default = current_fin_year()
+        fy = st.selectbox(
+            "Select Financial Year",
+            ["2023-24", "2024-25", "2025-26", "2026-27"],
+            index=["2023-24", "2024-25", "2025-26", "2026-27"].index(fy_default)
+            if fy_default in ["2023-24", "2024-25", "2025-26", "2026-27"] else 0
+        )
+
+        st.divider()
+
+        # --- FETCH ACTIVE ACCOUNTS ---
+        acc_list = acc_df[acc_df['is_active'] == 1]['name'].tolist()
+
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+
+        with col1:
+            sel_acc = st.selectbox("Select Account", acc_list)
+
+        with col2:
+            ob_amount = st.number_input("Opening Amount", min_value=0.0, step=100.0)
+
+        with col3:
+            ob_type = st.selectbox("Type", ["Debit", "Credit"])
+
+        with col4:
+            save_btn = st.button("💾 Save / Update", use_container_width=True)
+
+        # --- SAVE / UPDATE LOGIC ---
+        if save_btn:
+            with sqlite3.connect("business_ledger.db") as conn:
+                cur = conn.cursor()
+
+                # Check if already exists for this year & account
+                cur.execute("""
+                    SELECT id FROM opening_balances 
+                    WHERE account_name=? AND financial_year=?
+                """, (sel_acc, fy))
+                row = cur.fetchone()
+
+                if row:
+                    # Update existing
+                    cur.execute("""
+                        UPDATE opening_balances 
+                        SET balance=?, type=?
+                        WHERE account_name=? AND financial_year=?
+                    """, (ob_amount, ob_type, sel_acc, fy))
+                    st.success(f"Opening Balance Updated for {sel_acc} ({fy})")
+                else:
+                    # Insert new
+                    cur.execute("""
+                        INSERT INTO opening_balances (account_name, balance, type, financial_year)
+                        VALUES (?, ?, ?, ?)
+                    """, (sel_acc, ob_amount, ob_type, fy))
+                    st.success(f"Opening Balance Saved for {sel_acc} ({fy})")
+
+                conn.commit()
+
+        st.divider()
+
+        # --- DISPLAY CURRENT OPENING BALANCES ---
+        st.markdown("### 📊 Opening Balances List")
+
+        with sqlite3.connect("business_ledger.db") as conn:
+            ob_df = pd.read_sql_query("""
+                SELECT account_name, balance, type, financial_year 
+                FROM opening_balances
+                ORDER BY financial_year, account_name
+            """, conn)
+
+        if not ob_df.empty:
+            st.dataframe(ob_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No opening balances entered yet.")
+
+
+    with tab6:
  
         st.subheader("📑 Financial Reports & Export")
         
