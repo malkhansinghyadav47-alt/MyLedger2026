@@ -49,7 +49,20 @@ def init_db():
             """, (name, bal))
             
         conn.commit()
-        
+       
+# इसे सिर्फ एक बार रन करना है ताकि टेबल अपडेट हो जाए
+def upgrade_database():
+    conn = sqlite3.connect("business_ledger.db") # अपने DB का नाम लिखें
+    cursor = conn.cursor()
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN group_type TEXT DEFAULT 'Party'")
+        conn.commit()
+        print("✅ Database updated successfully!")
+    except Exception as e:
+        print(f"Note: {e}") # अगर कॉलम पहले से है तो एरर आएगा जिसे इग्नोर कर सकते हैं
+    finally:
+        conn.close()
+         
 def reset_database():
     """सावधानी: यह सभी ट्रांजेक्शन मिटा देगा!"""
     with sqlite3.connect('business_ledger.db') as conn:
