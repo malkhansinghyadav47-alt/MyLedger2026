@@ -973,9 +973,24 @@ if check_password():
 
             # 2. Professional Display (Alignment is automatic for NumberColumn)
 
+            def color_negative_positive(val):
+                try:
+                    val = float(val)
+                    if val < 0:
+                        return "color: #ff4b4b; font-weight: 600;"   # red
+                    elif val > 0:
+                        return "color: #2ecc71; font-weight: 600;"   # green
+                except:
+                    pass
+                return ""
+
+            styled_df = trial_report.style.applymap(
+                color_negative_positive,
+                subset=["Total In", "Total Out", "Net Balance"]
+            )
 
             st.dataframe(
-                trial_report,
+                styled_df,
                 column_config={
                     "Account Name": st.column_config.TextColumn("Account Name", width="medium"),
                     "Total In": st.column_config.NumberColumn("Total In", format="%.2f"),
@@ -985,6 +1000,7 @@ if check_password():
                 use_container_width=True,
                 hide_index=True
             )
+
 
             # 3. Summary Totals
             # 3. Summary Totals aligned with table columns
