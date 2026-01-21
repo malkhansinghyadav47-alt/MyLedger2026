@@ -236,6 +236,18 @@ def check_password():
         return False
     return True
 
+def color_balance(val):
+    try:
+        val = float(val)
+        if val < 0:
+            return "color: #ff4b4b; font-weight: 600;"   # red
+        elif val > 0:
+            return "color: #2ecc71; font-weight: 600;"   # green
+    except:
+        pass
+    return ""
+
+
 # --- 3. MAIN APP ---
 if check_password():
     st.title("📊 Jan Gan Man Public School Ledger 2026 Dashboard")
@@ -733,7 +745,86 @@ if check_password():
             
             if not filtered_df.empty:
                 st.write(f"Statement for **{selected_book}** from {fmt_date(start_date)} to {fmt_date(end_date)}")
-                st.dataframe(filtered_df, use_container_width=True)
+                # st.dataframe(filtered_df, use_container_width=True)
+                
+                # ---- BUILD RUNNING BALANCE LEDGER ----
+                ledger_rows = []
+                running_balance = 0.0
+
+                # Sort properly by date + id to maintain order
+                filtered_df_sorted = filtered_df.sort_values(by=["date", "id"])
+
+                for _, row in filtered_df_sorted.iterrows():
+                    if row["to_acc"] == selected_book:
+                        # Debit
+                        debit = row["amount"]
+                        credit = 0.0
+                        running_balance += debit
+                        particular = f"From {row['from_acc']}"
+                    else:
+                        # Credit
+                        debit = 0.0
+                        credit = row["amount"]
+                        running_balance -= credit
+                        particular = f"To {row['to_acc']}"
+
+                    ledger_rows.append({
+                        "Date": row["date"],
+                        "Particular": particular,
+                        "Debit": debit,
+                        "Credit": credit,
+                        "Balance": running_balance,
+                        "Note": row["note"],
+                        "ID": row["id"]   # keep ID for edit/delete reference
+                    })
+
+                ledger_report = pd.DataFrame(ledger_rows)
+
+                # ---- COLOR BALANCE RED / GREEN ----
+                styled_ledger = ledger_report.style.applymap(
+                    color_balance,
+                    subset=["Balance"]
+                )
+
+                # ---- DISPLAY LEDGER ----
+                st.dataframe(
+                    styled_ledger,
+                    column_config={
+                        "Date": st.column_config.TextColumn("Date", width="small"),
+                        "Particular": st.column_config.TextColumn("Particular", width="medium"),
+                        "Debit": st.column_config.NumberColumn("Debit", format="%.2f"),
+                        "Credit": st.column_config.NumberColumn("Credit", format="%.2f"),
+                        "Balance": st.column_config.NumberColumn("Balance", format="%.2f"),
+                        "Note": st.column_config.TextColumn("Note", width="medium"),
+                        "ID": st.column_config.NumberColumn("ID", width="small"),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )   
+              
+                # 3. CALCULATE TOTALS FOR SELECTED PERIOD
+                money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
+                money_out = filtered_df[filtered_df['from_acc'] == selected_book]['amount'].sum()
+                net_bal = money_in - money_out
+
+                if net_bal > 0:
+                    bal_label = "Owes You (उसको देने हैं)"
+                    msg_hindi = f"आपकी तरफ मेरा हिसाब ({fmt_date(start_date)} से {fmt_date(end_date)}) ₹{net_bal:,.2f} है जो आप मुझे देंगे।"
+                    delta_color = "normal"
+                elif net_bal < 0:
+                    bal_label = "You Owe (आपको देने हैं)"
+                    msg_hindi = f"मेरी तरफ आपका हिसाब ({fmt_date(start_date)} से {fmt_date(end_date)}) ₹{abs(net_bal):,.2f} है जो मैं आपको दूंगा।"
+                    delta_color = "inverse"
+                else:
+                    bal_label = "Settled (बराबर)"
+                    msg_hindi = f"{fmt_date(start_date)} से {fmt_date(end_date)} का हिसाब बराबर है।"
+                    delta_color = "off"
+                
+                bc1, bc2, bc3 = st.columns(3)
+                bc1.metric("Total In", f"₹{money_in:,.2f}")
+                bc2.metric("Total Out", f"₹{money_out:,.2f}")
+                bc3.metric(bal_label, f"₹{abs(net_bal):,.2f}", delta_color=delta_color)
+
                                 
                 # --- TAB 2: ACTION UI ---
                 st.markdown("### 🛠️ Record Actions")
@@ -825,29 +916,6 @@ if check_password():
                         else:
                             st.error(f"🚫 ID {edit_id} does not exist.")                                                
                
-                # 3. CALCULATE TOTALS FOR SELECTED PERIOD
-                money_in = filtered_df[filtered_df['to_acc'] == selected_book]['amount'].sum()
-                money_out = filtered_df[filtered_df['from_acc'] == selected_book]['amount'].sum()
-                net_bal = money_in - money_out
-
-                if net_bal > 0:
-                    bal_label = "Owes You (उसको देने हैं)"
-                    msg_hindi = f"आपकी तरफ मेरा हिसाब ({fmt_date(start_date)} से {fmt_date(end_date)}) ₹{net_bal:,.2f} है जो आप मुझे देंगे।"
-                    delta_color = "normal"
-                elif net_bal < 0:
-                    bal_label = "You Owe (आपको देने हैं)"
-                    msg_hindi = f"मेरी तरफ आपका हिसाब ({fmt_date(start_date)} से {fmt_date(end_date)}) ₹{abs(net_bal):,.2f} है जो मैं आपको दूंगा।"
-                    delta_color = "inverse"
-                else:
-                    bal_label = "Settled (बराबर)"
-                    msg_hindi = f"{fmt_date(start_date)} से {fmt_date(end_date)} का हिसाब बराबर है।"
-                    delta_color = "off"
-                
-                bc1, bc2, bc3 = st.columns(3)
-                bc1.metric("Total In", f"₹{money_in:,.2f}")
-                bc2.metric("Total Out", f"₹{money_out:,.2f}")
-                bc3.metric(bal_label, f"₹{abs(net_bal):,.2f}", delta_color=delta_color)
-
                 # 4. WHATSAPP GENERATOR (Includes Dates)
                 # 1. Build the message
                 wa_message = (
@@ -972,7 +1040,7 @@ if check_password():
             trial_report = pd.DataFrame(balance_data)
 
             # 2. Professional Display (Alignment is automatic for NumberColumn)
-
+ 
             def color_negative_positive(val):
                 try:
                     val = float(val)
