@@ -11,8 +11,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                opening_bal REAL DEFAULT 0,
                 phone TEXT,
+                group_type TEXT,
                 address TEXT,
                 is_active INTEGER DEFAULT 1
             )
@@ -31,23 +31,30 @@ def init_db():
             )
         ''')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS opening_balances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_name TEXT,
+                balance REAL,
+                type TEXT,              -- 'Debit' or 'Credit'
+                financial_year TEXT    -- '2024-25 etc'
+            )
+        ''')       
+        
         # 3. अपडेटेड डिफ़ॉल्ट खाते
         # यहाँ 'Plot Filling Expense' को बदलकर 'Construction Expense' कर दिया गया है
         defaults = [
-            ('Cash', 0), ('Bank', 0), ('Sales Income', 0), 
-            ('Personal Expense', 0), ('Office Expenses', 0), 
-            ('Conveyance', 0), ('Miscellaneous', 0), 
-            ('School Expenses', 0), ('Bills', 0),
-            ('Salary Expense', 0), ('Construction Expense', 0)
+            'Cash', 'Bank', 'Sales Income', 'Personal Expense',
+            'Office Expenses', 'Conveyance', 'Miscellaneous',
+            'School Expenses', 'Bills', 'Salary Expense', 'Construction Expense'
         ]
-        
-        # अगर यह जानकारी पहले से मौजूद है, तो इसे दोबारा मत डालो और चुपचाप आगे बढ़ जाओ
-        for name, bal in defaults:
+
+        for name in defaults:
             cursor.execute("""
-                INSERT OR IGNORE INTO accounts (name, opening_bal, is_active) 
-                VALUES (?, ?, 1)
-            """, (name, bal))
-            
+                INSERT OR IGNORE INTO accounts (name, is_active, group_type) 
+                VALUES (?, 1, 'Party')
+            """, (name,))
+           
         conn.commit()
        
 # इसे सिर्फ एक बार रन करना है ताकि टेबल अपडेट हो जाए
